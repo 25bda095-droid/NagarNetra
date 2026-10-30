@@ -44,4 +44,5 @@ create table storage.buckets (
 
 create publication supabase_realtime;
 
-alter database postgres set search_path = "$user", public, extensions;
+-- Like Supabase migrations: "extensions" is NOT on the search path, so extension types must be schema-qualified
+alter database postgres set search_path = "$user", public;

@@ -53,7 +53,7 @@ create table public.incidents (
   subtype               text,
   other_description     text,               -- AI description when category = other_civic
   summary               text,               -- public AI summary
-  point                 geography(Point, 4326) not null,
+  point                 extensions.geography(Point, 4326) not null,
   status                text not null default 'open'
                         check (status in ('open', 'forwarded', 'acknowledged',
                                           'resolved_claimed', 'resolved_verified', 'reopened')),
@@ -109,8 +109,8 @@ create table public.reports (
   category         text references public.categories (code),
   ai_summary       text,
   photo_path       text,                    -- blurred photo in the public bucket
-  device_point     geography(Point, 4326),  -- where the device said it was
-  corrected_point  geography(Point, 4326),  -- where the user moved the pin
+  device_point     extensions.geography(Point, 4326),  -- where the device said it was
+  corrected_point  extensions.geography(Point, 4326),  -- where the user moved the pin
   accuracy_m       real,
   location_source  text check (location_source in ('gps', 'network', 'manual_pin')),
   captured_at      timestamptz,
