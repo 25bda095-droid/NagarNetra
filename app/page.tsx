@@ -1,6 +1,7 @@
 // Temporary home page: shows sign-in state so Google login can be tested on a real phone (B1.5).
 // The real map and "Report an issue" flow replace this in later steps.
 import { Suspense } from "react";
+import Link from "next/link";
 import SignInButton from "@/components/SignInButton";
 import { getCurrentUser } from "@/lib/guards/auth";
 
@@ -14,6 +15,15 @@ export default function Home({ searchParams }: PageProps<"/">) {
       <Suspense fallback={<p className="text-sm opacity-60">Checking sign-in...</p>}>
         <AuthStatus searchParams={searchParams} />
       </Suspense>
+
+      <footer className="mt-8 flex gap-4 text-sm opacity-70">
+        <Link href="/privacy" className="hover:underline">
+          Privacy Policy
+        </Link>
+        <Link href="/terms" className="hover:underline">
+          Terms of Use
+        </Link>
+      </footer>
     </main>
   );
 }
