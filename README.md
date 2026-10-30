@@ -19,7 +19,7 @@ Nothing about any place is hardcoded: every location fact is discovered live and
 
 - Next.js (App Router, TypeScript), Tailwind CSS
 - Supabase: Postgres + PostGIS + pg_trgm, Storage, Auth (Google sign-in), Realtime
-- Gemini (vision), Groq (Whisper speech-to-text, fallback vision model)
+- Gemini (photo and voice understanding, with a fallback model)
 - OpenStreetMap (Overpass, Nominatim), Wikidata, Local Government Directory (data.gov.in), Open-Meteo
 - Hosted on Vercel
 

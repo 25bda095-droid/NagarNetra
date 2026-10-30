@@ -57,7 +57,7 @@ export default function PrivacyPage() {
       <h2>How your data is processed</h2>
       <ul>
         <li>
-          <strong>AI analysis</strong>: photos and voice notes are sent to Google Gemini and Groq to identify the issue
+          <strong>AI analysis</strong>: photos and voice notes are sent to Google Gemini to identify the issue
           and transcribe speech. Free tiers of these services may use submitted content to improve their products.
         </li>
         <li>
