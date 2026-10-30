@@ -63,6 +63,7 @@ export type Category = (typeof CATEGORIES)[number];
 
 // JSON Schema sent to Gemini so the model's output is constrained to this shape.
 export const complaintRecordJsonSchema = (() => {
-  const { $schema: _ignored, ...schema } = z.toJSONSchema(ComplaintRecordSchema) as Record<string, unknown>;
+  const schema = z.toJSONSchema(ComplaintRecordSchema) as Record<string, unknown>;
+  delete schema.$schema; // Gemini doesn't need the meta-schema URL
   return schema;
 })();
