@@ -37,7 +37,25 @@ npm run dev
 
 Open http://localhost:3000.
 
-Setup for the database, Google sign-in and the LGD import will be added here as those parts are built.
+### Database
+
+The schema lives in `supabase/migrations/` (tables, Row Level Security, public views, storage buckets).
+
+Apply it to your Supabase project:
+
+```bash
+npx supabase login
+npx supabase link --project-ref <your-project-ref>
+npx supabase db push
+```
+
+Test the migrations and security rules locally (needs Docker; uses a throwaway PostGIS container):
+
+```bash
+npm run test:db
+```
+
+Setup for Google sign-in and the LGD import will be added here as those parts are built.
 
 ## Licence
 
