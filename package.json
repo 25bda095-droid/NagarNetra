@@ -10,7 +10,8 @@
     "test:db": "bash scripts/test-db.sh",
     "test": "vitest run",
     "import:lgd": "node --env-file=.env.local scripts/import-lgd.mts",
-    "try:analyze": "node --env-file=.env.local scripts/try-analyze.mts"
+    "try:analyze": "node --env-file=.env.local scripts/try-analyze.mts",
+    "try:locate": "node --env-file=.env.local scripts/try-locate.mts"
   },
   "dependencies": {
     "@google/genai": "^2.32.0",
