@@ -65,7 +65,13 @@ npm run import:lgd
 
 Re-run it any time to refresh; units removed from the directory are deleted. Sources and licences are listed in [DATA_SOURCES.md](DATA_SOURCES.md).
 
+### Trying the AI analysis
 
+Run the photo / voice-note analysis on your own files without the app (uses `GEMINI_API_KEY` from `.env.local`):
+
+```bash
+npm run try:analyze -- photo.jpg [voice.webm] [--note "text"]
+```
 
 ## Licence
 
