@@ -55,7 +55,15 @@ Test the migrations and security rules locally (needs Docker; uses a throwaway P
 npm run test:db
 ```
 
-Setup for Google sign-in and the LGD import will be added here as those parts are built.
+### Official local government directory
+
+Import every state, district, sub-district, block and local body in India (about 300,000 rows, under a minute):
+
+```bash
+npm run import:lgd
+```
+
+Re-run it any time to refresh; units removed from the directory are deleted. Sources and licences are listed in [DATA_SOURCES.md](DATA_SOURCES.md).
 
 ## Licence
 

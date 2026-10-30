@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "test:db": "bash scripts/test-db.sh",
-    "test": "vitest run"
+    "test": "vitest run",
+    "import:lgd": "node --env-file=.env.local scripts/import-lgd.mts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
@@ -26,6 +27,8 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.4.3",
+    "hyparquet": "^1.32.0",
+    "hyparquet-compressors": "^1.1.2",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^5.0.5"
