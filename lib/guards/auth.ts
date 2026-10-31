@@ -1,5 +1,6 @@
 // Guards for API routes. Every route that writes data starts with requireUser() or requireModerator().
 import "server-only";
+import { connection } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { HttpError } from "@/lib/http";
 
@@ -11,6 +12,8 @@ export type CurrentUser = {
 
 // Reads and verifies the session from cookies. Returns null when signed out.
 export async function getCurrentUser(): Promise<CurrentUser | null> {
+  // the session check reads the clock (token expiry), so it must run per request, never at prerender
+  await connection();
   const supabase = await createClient();
   const { data, error } = await supabase.auth.getClaims();
   if (error || !data?.claims?.sub) return null;

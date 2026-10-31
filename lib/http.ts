@@ -23,3 +23,12 @@ export function safeNextPath(next: string | null | undefined, fallback = "/"): s
   if (!next || !next.startsWith("/") || next.startsWith("//") || next.startsWith("/\\")) return fallback;
   return next;
 }
+
+// The site's origin as the browser sees it. request.nextUrl.origin is the address the server
+// listens on, which is "0.0.0.0:3000" when the dev server is opened to the local network.
+export function requestOrigin(request: Request): string {
+  const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
+  if (!host) return new URL(request.url).origin;
+  const proto = request.headers.get("x-forwarded-proto") ?? new URL(request.url).protocol.replace(":", "");
+  return `${proto}://${host}`;
+}
