@@ -81,6 +81,18 @@ export default function TrackView({ code, incidentId }: { code?: string; inciden
     } catch (e) { setMsg((e as Error).message); }
   }
 
+  const [rerouting, setRerouting] = useState(false);
+  async function reroute() {
+    setRerouting(true);
+    setMsg("Searching official sources again… this can take up to 30 seconds.");
+    try {
+      const r = await api<{ name: string | null; status: string }>(`/api/incidents/${d!.incident!.id}/reroute`, {});
+      setMsg(r.name ? `Found: ${r.name} (${r.status}).` : "Still no authority found. A moderator will look into it.");
+      load();
+    } catch (e) { setMsg((e as Error).message); }
+    setRerouting(false);
+  }
+
   async function verify(f: File) {
     setMsg("Checking the after-photo...");
     navigator.geolocation.getCurrentPosition(async (p) => {
@@ -159,6 +171,11 @@ export default function TrackView({ code, incidentId }: { code?: string; inciden
               Routing {inc.routing_status}{inc.routing_confidence != null && ` · confidence ${inc.routing_confidence}`}{inc.authority_verification && ` · ${String(inc.authority_verification).replace("_", " ")}`}
             </p>
             {inc.routing_reason && <p className="text-xs text-muted">{inc.routing_reason}</p>}
+            {inc.routing_status !== "verified" && (
+              <button onClick={reroute} disabled={rerouting} className="btn-ghost mt-2 min-h-9">
+                {rerouting ? "Searching…" : "Search for the authority again"}
+              </button>
+            )}
           </div>
         </section>
       )}
