@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { CATEGORIES, type ComplaintRecord } from "@/lib/ai/schema";
 import Webcam from "@/components/report/Webcam";
+import Turnstile from "@/components/report/Turnstile";
 
 const MapView = dynamic(() => import("@/components/MapView"), { ssr: false });
 import type { PlaceInfo } from "@/lib/discovery/locate";
@@ -59,6 +60,7 @@ export default function ReportFlow() {
   const [category, setCategory] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
   const [idemKey] = useState(() => crypto.randomUUID());
+  const [turnstile, setTurnstile] = useState<string | null>(null);
   const router = useRouter();
   const isPhone = useSyncExternalStore(() => () => {}, () => /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent), () => true);
 
@@ -136,7 +138,7 @@ export default function ReportFlow() {
       const r = await api<{ tracking_code: string }>("/api/reports", {
         analysis_id: analysis?.analysis_id ?? null, idempotency_key: idemKey, mode: assisted ? "assisted" : "live",
         device: isPhone ? "phone" : "laptop", lat: fix.lat, lon: fix.lon, accuracy_m: fix.accuracy, pin,
-        captured_at: assisted ? null : capturedAt, category: category || null, note: note.trim() || null,
+        captured_at: assisted ? null : capturedAt, category: category || null, note: note.trim() || null, turnstile_token: turnstile,
       });
       router.push(`/track/${r.tracking_code}`);
     } catch (e) {
@@ -241,7 +243,8 @@ export default function ReportFlow() {
               </select>
             </label>
           )}
-          <button onClick={submit} disabled={submitting || (needsPick && !category)} className="rounded-md bg-red-600 px-4 py-2 font-medium text-white disabled:opacity-50">
+          <Turnstile onToken={setTurnstile} />
+          <button onClick={submit} disabled={submitting || (needsPick && !category) || (!!process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY && !turnstile)} className="rounded-md bg-red-600 px-4 py-2 font-medium text-white disabled:opacity-50">
             {submitting ? "Submitting..." : "Submit report"}
           </button>
           <p className="text-xs opacity-60">Your photo is shown publicly with faces and number plates blurred. Your name, email and exact device location are never public.</p>
