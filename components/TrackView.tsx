@@ -161,7 +161,17 @@ export default function TrackView({ code, incidentId }: { code?: string; inciden
 
       {inc && (
         <section className="card nn-rise flex flex-col gap-4">
-          {inc.cover_photo_path && /* eslint-disable-next-line @next/next/no-img-element */ <img src={photoUrl(String(inc.cover_photo_path))} alt="Reported problem (faces and plates blurred)" className="max-h-80 w-full rounded-xl bg-surface-2 object-cover" />}
+          {inc.fixed_photo_path && inc.cover_photo_path ? (
+            <div className="grid grid-cols-2 gap-1 overflow-hidden rounded-xl">
+              {[["Before", inc.cover_photo_path], ["After", inc.fixed_photo_path]].map(([label, p]) => (
+                <div key={label} className="relative">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={photoUrl(String(p))} alt={`${label} (faces and plates blurred)`} className="h-56 w-full object-cover sm:h-72" />
+                  <span className={`absolute top-2 left-2 rounded-md px-2 py-0.5 text-xs font-semibold text-white ${label === "Before" ? "bg-danger" : "bg-ok"}`}>{label}</span>
+                </div>
+              ))}
+            </div>
+          ) : inc.cover_photo_path && /* eslint-disable-next-line @next/next/no-img-element */ <img src={photoUrl(String(inc.cover_photo_path))} alt="Reported problem (faces and plates blurred)" className="max-h-80 w-full rounded-xl bg-surface-2 object-cover" />}
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-xl font-semibold">{inc.category_label}</h2>
             <SeverityBadge band={inc.severity_band as string} score={inc.severity_score as number} />
@@ -177,6 +187,12 @@ export default function TrackView({ code, incidentId }: { code?: string; inciden
               Routing {inc.routing_status}{inc.routing_confidence != null && ` · confidence ${inc.routing_confidence}`}{inc.authority_verification && ` · ${String(inc.authority_verification).replace("_", " ")}`}
             </p>
             {inc.routing_reason && <p className="text-xs text-muted">{inc.routing_reason}</p>}
+            {(inc.authority_portal_url || inc.authority_helpline) && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {inc.authority_portal_url && <a href={String(inc.authority_portal_url)} target="_blank" rel="noreferrer" className="btn-primary min-h-9 px-3">Contact authority ↗</a>}
+                {inc.authority_helpline && /^[\d +()-]{6,}$/.test(String(inc.authority_helpline)) && <a href={`tel:${String(inc.authority_helpline).replace(/[^\d+]/g, "")}`} className="btn-ghost min-h-9 px-3">Call {inc.authority_helpline}</a>}
+              </div>
+            )}
             {inc.routing_status !== "verified" && (
               <button onClick={reroute} disabled={rerouting} className="btn-ghost mt-2 min-h-9">
                 {rerouting ? "Searching…" : "Search for the authority again"}

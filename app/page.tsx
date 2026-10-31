@@ -25,7 +25,7 @@ export default function Home() {
           </p>
           <div className="flex flex-wrap gap-3">
             <Link href="/report" className="btn-primary px-6 text-base">Report an issue</Link>
-            <a href="#map" className="btn-ghost">See the live map</a>
+            <Link href="/issues" className="btn-ghost">Browse issues</Link>
           </div>
           <div className="flex flex-col gap-1.5">
             <span className="eyebrow">Already reported? Track it</span>
@@ -54,7 +54,7 @@ export default function Home() {
       <section id="map" className="flex scroll-mt-20 flex-col gap-3">
         <div className="flex items-end justify-between gap-3">
           <h2 className="text-xl font-semibold">Live incident map</h2>
-          <Link href="/stats" className="text-sm text-brand">Stats & leaderboards →</Link>
+          <div className="flex gap-4 text-sm"><Link href="/issues" className="text-brand">All issues & solved →</Link><Link href="/stats" className="text-brand">Stats →</Link></div>
         </div>
         <IncidentMap />
       </section>
