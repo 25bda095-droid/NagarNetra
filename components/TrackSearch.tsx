@@ -10,7 +10,7 @@ export default function TrackSearch() {
   const [err, setErr] = useState(false);
   return (
     <form
-      className="flex w-full max-w-sm gap-2"
+      className="flex w-full max-w-md gap-2"
       onSubmit={(e) => {
         e.preventDefault();
         const c = code.trim().toUpperCase().replace(/^(NN)?-?/, "NN-");
@@ -18,8 +18,8 @@ export default function TrackSearch() {
         else setErr(true);
       }}
     >
-      <input value={code} onChange={(e) => { setCode(e.target.value); setErr(false); }} placeholder="Tracking code, e.g. NN-QVTYS5" className={`flex-1 rounded-md border bg-transparent px-3 py-2 text-sm ${err ? "border-red-600" : ""}`} />
-      <button className="rounded-md border px-3 py-2 text-sm">Track</button>
+      <input value={code} onChange={(e) => { setCode(e.target.value); setErr(false); }} placeholder="Tracking code, e.g. NN-QVTYS5" className={`input flex-1 font-mono uppercase placeholder:normal-case ${err ? "border-danger" : ""}`} />
+      <button className="btn-ghost">Track</button>
     </form>
   );
 }

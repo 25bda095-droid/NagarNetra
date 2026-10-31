@@ -32,7 +32,9 @@ export default function MapView({ center, zoom = 15, points = [], pin, onPinMove
   useEffect(() => void (moveRef.current = onPinMove), [onPinMove]);
 
   useEffect(() => {
-    const m = new maplibregl.Map({ container: box.current!, style: "https://tiles.openfreemap.org/styles/liberty", center, zoom, attributionControl: { compact: true } });
+    const m = new maplibregl.Map({ container: box.current!, style: "https://tiles.openfreemap.org/styles/liberty", center, zoom, attributionControl: { compact: true },
+      // page scrolling never moves the map: two fingers on phones, Ctrl/⌘ + scroll on desktop
+      cooperativeGestures: true });
     m.addControl(new maplibregl.NavigationControl({ showCompass: false }));
     m.on("load", () => {
       m.addSource("acc", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
