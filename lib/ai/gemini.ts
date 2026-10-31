@@ -72,3 +72,19 @@ export async function generateJson(call: JsonCall): Promise<string> {
     throw classify(err);
   }
 }
+
+// Plain-text call with Google Search grounding (used by the Authority Finder as a last resort).
+// Returns the answer text and the web pages Google cited.
+export async function generateGrounded(model: string, prompt: string, timeoutMs: number): Promise<{ text: string; sources: string[] }> {
+  try {
+    const res = await getClient().models.generateContent({
+      model,
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      config: { tools: [{ googleSearch: {} }], thinkingConfig: thinkingConfigFor(model), temperature: 0, abortSignal: AbortSignal.timeout(timeoutMs) },
+    });
+    const sources = (res.candidates?.[0]?.groundingMetadata?.groundingChunks ?? []).map((c) => c.web?.uri).filter((u): u is string => !!u);
+    return { text: res.text ?? "", sources };
+  } catch (err) {
+    throw classify(err);
+  }
+}

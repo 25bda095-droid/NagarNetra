@@ -4,6 +4,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { PlaceInfo } from "@/lib/discovery/locate";
+import { searchAuthority } from "@/lib/ai/find-authority";
 import { matchRules, routingConfidence, type AgencyType, type RoutingRule } from "@/lib/rules/score";
 
 const UA = process.env.OSM_USER_AGENT ?? "NagarNetra/0.1";
@@ -28,6 +29,18 @@ async function pageLoads(url: string): Promise<boolean> {
   try {
     const r = await fetch(url, { signal: AbortSignal.timeout(8000), headers: { "User-Agent": UA }, redirect: "follow" });
     return r.ok;
+  } catch {
+    return false;
+  }
+}
+
+// Official page loads and mentions the place: a lead from web search is only kept if this holds.
+async function pageMentions(url: string, names: string[]): Promise<boolean> {
+  try {
+    const r = await fetch(url, { signal: AbortSignal.timeout(8000), headers: { "User-Agent": UA }, redirect: "follow" });
+    if (!r.ok) return false;
+    const text = (await r.text()).slice(0, 400_000).toLowerCase();
+    return names.some((n) => n.length > 2 && text.includes(n.toLowerCase()));
   } catch {
     return false;
   }
@@ -118,30 +131,43 @@ export async function routeIncident(db: SupabaseClient, i: { incidentId: string;
 
     // a saved authority without any contact channel is looked up again (sources may have it now)
     if (place && (!auth || (!auth.portal_url && auth.verification_status === "ai_found"))) {
-      const f = await findAuthority(agency, place, scopeUnit?.name ?? "");
+      let f = await findAuthority(agency, place, scopeUnit?.name ?? "");
+      let verified = f?.website ? isGovDomain(f.website) && (await pageLoads(f.website)) : false;
+      // free sources found no working government website: last resort, Gemini with Google Search
+      if (!verified) {
+        const lead = await searchAuthority(
+          { agency, body: lb?.name ?? null, district: district?.name ?? null, state: state?.name ?? null },
+          (model) => Promise.resolve(db.rpc("record_ai_call", { p_provider: "gemini", p_model: model })),
+        ).catch(() => null);
+        const names = [lb?.name, district?.name, state?.name].filter((n): n is string => !!n);
+        if (lead && isGovDomain(lead.url) && (await pageMentions(lead.url, names))) {
+          f = { name: lead.name, website: lead.url, sources: [...(f?.sources ?? []), ...lead.sources.slice(0, 3)], found_by: [...(f?.found_by ?? []), "web_search", ...(agency === "local_body" && !lead.name.toLowerCase().includes((lb?.name ?? "~").toLowerCase()) ? ["via_portal"] : [])] };
+          verified = true;
+        }
+      }
       if (!f) {
         if (auth) break; // keep the saved one
         continue; // e.g. no water board here -> next rule (local body)
       }
-      const verified = f.website ? isGovDomain(f.website) && (await pageLoads(f.website)) : false;
       const { data } = await db.from("authorities").upsert({
         name: f.name, agency_type: agency, scope_level: scopeLevel, scope_lgd_code: scopeCode, state_lgd: state?.lgd_code ?? null,
         level: agency === "local_body" ? "local" : agency === "national_highway_authority" ? "national" : "state",
         issue_categories: [i.category], portal_url: verified ? f.website : null, source_urls: [...f.sources, ...(f.website ? [f.website] : [])],
-        found_by: f.found_by, verification_status: "ai_found", confidence: verified ? (f.via ? 0.7 : 0.85) : 0.5,
+        found_by: f.found_by, verification_status: "ai_found", confidence: verified ? (f.via ? 0.7 : f.found_by.includes("web_search") ? 0.75 : 0.85) : 0.5,
       }, { onConflict: "agency_type,scope_level,scope_lgd_code" }).select("*").single();
       auth = data;
       cacheHit = false;
     }
     if (!auth) continue;
-    const viaDistrict = (auth.found_by ?? []).includes("wikidata_district");
+    // reached through a district site or a state-wide grievance portal, not the body's own site
+    const viaDistrict = (auth.found_by ?? []).some((x: string) => x === "wikidata_district" || x === "via_portal");
     // reached through the district's channel: we know the body, but the contact is one level up
     const jurisdiction = agency === "local_body" ? (lb?.lgd_code && !viaDistrict ? "local_body" : "district") : state?.lgd_code || agency === "national_highway_authority" ? "local_body" : "none";
     const c = routingConfidence({
       jurisdiction, ruleRank: rank, otherCivic: i.category === "other_civic",
       authority: auth.verification_status === "human_verified" ? "human_verified" : auth.portal_url ? "ai_found" : "none",
     });
-    result = { authority_id: auth.id, name: auth.name, agency, ...c, reason: `${rule.note ?? agency}${viaDistrict ? " · no website of its own, contact via the district administration" : ""}${cacheHit ? " (cached)" : ""}`, sources: auth.source_urls ?? [] };
+    result = { authority_id: auth.id, name: auth.name, agency, ...c, reason: `${rule.note ?? agency}${viaDistrict ? ` · no website of its own, contact via ${(auth.found_by ?? []).includes("via_portal") ? auth.name : "the district administration"}` : ""}${cacheHit ? " (cached)" : ""}`, sources: auth.source_urls ?? [] };
     break;
   }
   result ??= { authority_id: null, name: null, agency: null, status: "unmapped", confidence: 0, reason: "No authority found for this place yet", sources: [] };
