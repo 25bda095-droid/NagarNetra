@@ -9,8 +9,9 @@ import { createClient } from "@/lib/supabase/client";
 import { CATEGORIES, type ComplaintRecord } from "@/lib/ai/schema";
 import Webcam from "@/components/report/Webcam";
 import Turnstile from "@/components/report/Turnstile";
+import { SeverityBadge, Tip } from "@/components/ui";
 
-const MapView = dynamic(() => import("@/components/MapView"), { ssr: false });
+const MapView = dynamic(() => import("@/components/MapView"), { ssr: false, loading: () => <div className="h-64 w-full animate-pulse rounded-xl bg-surface-2" /> });
 import type { PlaceInfo } from "@/lib/discovery/locate";
 
 type Fix = { lat: number; lon: number; accuracy: number };
@@ -79,6 +80,10 @@ export default function ReportFlow() {
   const [submitting, setSubmitting] = useState(false);
   const [idemKey] = useState(() => crypto.randomUUID());
   const [turnstile, setTurnstile] = useState<string | null>(null);
+  const [step, setStep] = useState(1);
+  // what the last check ran on: the same photo/voice/note/spot is never sent to the AI twice
+  const [checkedKey, setCheckedKey] = useState<string | null>(null);
+  const [photoId, setPhotoId] = useState(0);
   const router = useRouter();
   const isPhone = useSyncExternalStore(() => () => {}, () => /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent), () => true);
 
@@ -87,6 +92,8 @@ export default function ReportFlow() {
     setPreview(URL.createObjectURL(f));
     setCapturedAt(new Date(at).toISOString());
     setAnalysis(null);
+    setPlace(null);
+    setPhotoId((n) => n + 1);
   }
 
   // keep improving the GPS fix while the user is on this screen
@@ -127,8 +134,12 @@ export default function ReportFlow() {
     }
   }
 
+  const inputKey = `${assisted ? "a" : photoId}|${audio?.size ?? 0}|${note.trim()}|${pin ? `${pin.lat.toFixed(5)},${pin.lon.toFixed(5)}` : "gps"}`;
+  const checked = checkedKey === inputKey && !!place;
+
   async function analyze() {
     if ((!photo && !assisted) || !fix) return;
+    if (checked) return setStep(4); // nothing changed since the last check
     setBusy(true);
     setError(null);
     try {
@@ -141,6 +152,8 @@ export default function ReportFlow() {
       setAnalysis(a);
       setPlace(p);
       setCategory(a?.record?.category ?? "");
+      setCheckedKey(inputKey);
+      setStep(4);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong.");
     } finally {
@@ -168,105 +181,145 @@ export default function ReportFlow() {
   const hazard = analysis?.hazard || HAZARD_WORDS.test(note) || category === "electrical_hazard";
   const blocked = analysis?.status === "not_civic" || analysis?.status === "poor_quality";
   const needsPick = !blocked && (!analysis?.record?.category || analysis.low_confidence);
+  const hasEvidence = assisted ? !!(audio || note.trim()) : !!photo;
+  const STEPS = ["Photo", "Location", "Details", "Review"];
 
   return (
     <div className="flex flex-col gap-4">
+      <ol className="grid grid-cols-4 gap-2" aria-label="Steps">
+        {STEPS.map((label, i) => {
+          const n = i + 1, done = n < step, here = n === step;
+          const reachable = n <= step || (n === 2 && hasEvidence) || (n === 3 && hasEvidence && !!fix) || (n === 4 && checked);
+          return (
+            <li key={label}>
+              <button disabled={!reachable || busy || submitting} onClick={() => setStep(n)} className="flex w-full flex-col gap-1.5 text-left disabled:opacity-50">
+                <span className={`h-1.5 rounded-full ${done || here ? "bg-brand" : "bg-surface-2"}`} />
+                <span className={`text-xs ${here ? "font-semibold text-ink" : "text-muted"}`}>{n}. {label}</span>
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+
       {hazard && (
-        <div className="rounded-lg border border-red-600 bg-red-600/10 p-3 text-sm">
-          <strong>Danger to life?</strong> Call <a href="tel:112" className="underline">112</a> now, then report here.
+        <div className="nn-rise rounded-2xl border border-danger/40 bg-danger/10 p-4 text-sm">
+          <strong className="text-danger">Danger to life?</strong> Call <a href="tel:112" className="font-semibold text-danger underline">112</a> now, then finish this report so it gets fixed.
         </div>
       )}
 
-      <label className="flex items-center gap-2 text-sm">
-        <input type="checkbox" checked={assisted} onChange={(e) => { setAssisted(e.target.checked); setAnalysis(null); }} />
-        Assisted mode (no photo: describe it by voice or text, marked as assisted)
-      </label>
-
-      {!assisted && !isPhone && <Webcam onCapture={(b) => takePhoto(b, Date.now())} />}
-
-      {!assisted && (isPhone || preview) && <label className="flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed p-4 text-center">
-        {preview ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={preview} alt="Your photo" className="max-h-72 rounded-md object-contain" />
-        ) : (
-          <span>Take a photo of the problem</span>
-        )}
-        <span className="text-sm opacity-70">{preview ? (isPhone ? "Tap to retake" : "Live webcam photo") : "Opens the rear camera"}</span>
-        <input
-          type="file"
-          accept="image/jpeg,image/png,image/webp"
-          capture="environment"
-          className="hidden"
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) takePhoto(f, f.lastModified); // a gallery photo keeps its old time and is refused on submit
-          }}
-        />
-      </label>}
-
-      <p className="text-sm">
-        {fix ? (
-          <>
-            Location: {fix.lat.toFixed(5)}, {fix.lon.toFixed(5)}{" "}
-            <span className={fix.accuracy > 150 ? "text-amber-600" : "opacity-70"}>(±{fix.accuracy} m)</span>
-          </>
-        ) : (
-          (gpsError ?? "Getting your location...")
-        )}
-      </p>
-      {fix && (
-        <>
-          <MapView center={[fix.lon, fix.lat]} pin={{ ...(pin ?? fix), accuracy: pin ? 10 : fix.accuracy }} onPinMove={(p) => { setPin(p); setPlace(null); }} />
-          <p className="-mt-2 text-xs opacity-70">{pin ? "Pin moved by you. " : fix.accuracy > 150 ? "Location is rough: drag the pin to the exact spot. " : "Drag the pin if it's not exactly right. "}</p>
-        </>
-      )}
-
-      <div className="flex items-center gap-3">
-        <button onClick={toggleRecording} className="rounded-md border px-3 py-1.5 text-sm">
-          {recording ? "Stop recording" : audio ? "Re-record voice note" : "Add voice note (any language)"}
-        </button>
-        {audio && !recording && <span className="text-sm opacity-70">Voice note ready</span>}
-      </div>
-
-      <textarea
-        value={note}
-        onChange={(e) => setNote(e.target.value)}
-        maxLength={500}
-        rows={2}
-        placeholder="Optional note"
-        className="rounded-md border bg-transparent p-2 text-sm"
-      />
-
-      <button
-        onClick={analyze}
-        disabled={(!photo && !(assisted && (audio || note.trim()))) || !fix || busy || recording}
-        className="rounded-md bg-foreground px-4 py-2 text-background disabled:opacity-50"
-      >
-        {busy ? "Checking photo and location..." : "Check"}
-      </button>
-
-      {error && <p className="text-sm text-red-600">{error}</p>}
-
-      {analysis && <AnalysisPanel a={analysis} />}
-      {place && <PlacePanel p={place} />}
-
-      {place && !blocked && (
-        <div className="flex flex-col gap-3 rounded-lg border p-3">
-          {needsPick && (
-            <label className="flex flex-col gap-1 text-sm">
-              {analysis?.record?.category ? "Please confirm the type of problem" : "What kind of problem is it?"}
-              <select value={category} onChange={(e) => setCategory(e.target.value)} className="rounded-md border bg-transparent p-2">
-                <option value="">Choose...</option>
-                {CATEGORIES.map((c) => <option key={c} value={c}>{c.replace(/_/g, " ")}</option>)}
-              </select>
-            </label>
+      {step === 1 && (
+        <section className="card nn-rise flex flex-col gap-4">
+          <div>
+            <h2 className="text-lg font-semibold">{assisted ? "No photo: assisted mode" : "Take a live photo of the problem"}</h2>
+            <p className="text-sm text-muted">{assisted ? "You'll describe the problem by voice or text in step 3. Assisted reports are labelled and get a lower evidence score." : "Stand where the problem is and capture it clearly. Downloaded or old photos are not accepted."}</p>
+          </div>
+          {!assisted && (
+            <>
+              {preview && /* eslint-disable-next-line @next/next/no-img-element */ <img src={preview} alt="Your photo" className="max-h-80 w-full rounded-xl bg-surface-2 object-contain" />}
+              {isPhone ? (
+                <label className={preview ? "btn-ghost cursor-pointer" : "btn-primary cursor-pointer py-6 text-base"}>
+                  {preview ? "Retake photo" : "Open camera"}
+                  <input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" className="hidden"
+                    onChange={(e) => { const f = e.target.files?.[0]; if (f) takePhoto(f, f.lastModified); /* a gallery photo keeps its old time and is refused on submit */ }} />
+                </label>
+              ) : (
+                <Webcam onCapture={(b) => takePhoto(b, Date.now())} retake={!!preview} />
+              )}
+              <Tip>Good photos: the whole problem in frame, daylight or flash, one issue per report.</Tip>
+            </>
           )}
-          <Turnstile onToken={setTurnstile} />
-          <button onClick={submit} disabled={submitting || (needsPick && !category) || (!!process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY && !turnstile)} className="rounded-md bg-red-600 px-4 py-2 font-medium text-white disabled:opacity-50">
-            {submitting ? "Submitting..." : "Submit report"}
+          <label className="flex items-center gap-2 text-sm text-muted">
+            <input type="checkbox" className="h-4 w-4 accent-[var(--brand)]" checked={assisted} onChange={(e) => { setAssisted(e.target.checked); setAnalysis(null); setPlace(null); }} />
+            I can&apos;t take a photo (assisted mode)
+          </label>
+          <button className="btn-primary" disabled={!assisted && !photo} onClick={() => setStep(2)}>Continue</button>
+        </section>
+      )}
+
+      {step === 2 && (
+        <section className="card nn-rise flex flex-col gap-3">
+          <div>
+            <h2 className="text-lg font-semibold">Confirm the exact spot</h2>
+            <p className="text-sm text-muted">The red pin is where your device says you are; the shaded circle is how accurate that is.</p>
+          </div>
+          {fix ? (
+            <>
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="chip font-mono">{(pin ?? fix).lat.toFixed(5)}, {(pin ?? fix).lon.toFixed(5)}</span>
+                <span className={`chip ${fix.accuracy > 150 ? "border-warn/40 text-warn" : "border-ok/40 text-ok"}`}>GPS ±{fix.accuracy} m</span>
+                {pin && <button className="text-xs text-brand underline" onClick={() => setPin(null)}>Reset pin</button>}
+              </div>
+              <div className="h-72 overflow-hidden rounded-xl border sm:h-80">
+                <MapView className="h-full w-full" center={[fix.lon, fix.lat]} pin={{ ...(pin ?? fix), accuracy: pin ? 10 : fix.accuracy }} onPinMove={(p) => setPin(p)} />
+              </div>
+              <Tip>{fix.accuracy > 150 ? "Your location is rough. Drag the pin onto the exact spot (up to a few hundred metres)." : "Looks accurate. Drag the pin only if it's not exactly on the problem."} Use two fingers to move the map.</Tip>
+            </>
+          ) : (
+            <p className={`rounded-xl p-4 text-sm ${gpsError ? "bg-danger/10 text-danger" : "bg-surface-2 text-muted"}`}>
+              {gpsError ? `${gpsError} Allow location for this site in your browser settings, then reload.` : "Finding your location… keep this screen open."}
+            </p>
+          )}
+          <div className="grid grid-cols-2 gap-2">
+            <button className="btn-ghost" onClick={() => setStep(1)}>Back</button>
+            <button className="btn-primary" disabled={!fix} onClick={() => setStep(3)}>Continue</button>
+          </div>
+        </section>
+      )}
+
+      {step === 3 && (
+        <section className="card nn-rise flex flex-col gap-3">
+          <div>
+            <h2 className="text-lg font-semibold">Add details {assisted ? "" : <span className="text-sm font-normal text-muted">(optional)</span>}</h2>
+            <p className="text-sm text-muted">Speak in any language: Hindi, Kannada, Tamil, English… The AI understands and translates it.</p>
+          </div>
+          <button onClick={toggleRecording} className={recording ? "btn-danger" : "btn-ghost"}>
+            {recording ? "● Recording… tap to stop" : audio ? "Re-record voice note" : "Record a voice note"}
           </button>
-          <p className="text-xs opacity-60">Your photo is shown publicly with faces and number plates blurred. Your name, email and exact device location are never public.</p>
-        </div>
+          {audio && !recording && <span className="chip w-fit border-ok/40 text-ok">Voice note ready</span>}
+          <textarea value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} rows={3}
+            placeholder={assisted ? "Describe the problem: what, how big, any danger" : "Anything the photo doesn't show (e.g. 'children fall here daily')"}
+            className="input min-h-24 py-2" />
+          {error && <p className="rounded-xl bg-danger/10 p-3 text-sm text-danger">{error}</p>}
+          <div className="grid grid-cols-2 gap-2">
+            <button className="btn-ghost" onClick={() => setStep(2)} disabled={busy}>Back</button>
+            <button className="btn-primary" onClick={analyze} disabled={!hasEvidence || !fix || busy || recording}>
+              {busy ? "Checking…" : checked ? "Continue" : "Check with AI"}
+            </button>
+          </div>
+          {busy && <Tip>Reading the photo and finding the jurisdiction. This takes 5–15 seconds.</Tip>}
+        </section>
+      )}
+
+      {step === 4 && place && (
+        <section className="nn-rise flex flex-col gap-3">
+          {analysis && <AnalysisPanel a={analysis} />}
+          <PlacePanel p={place} />
+          {blocked ? (
+            <div className="card flex flex-col gap-3">
+              <p className="text-sm">This can&apos;t be reported as it is. {analysis?.status === "poor_quality" ? "Please retake the photo." : "If it really is a public civic problem, retake the photo or use assisted mode."}</p>
+              <button className="btn-primary" onClick={() => setStep(1)}>Retake photo</button>
+            </div>
+          ) : (
+            <div className="card flex flex-col gap-3">
+              {needsPick && (
+                <label className="flex flex-col gap-1 text-sm font-medium">
+                  {analysis?.record?.category ? "Please confirm the type of problem" : "What kind of problem is it?"}
+                  <select value={category} onChange={(e) => setCategory(e.target.value)} className="input">
+                    <option value="">Choose…</option>
+                    {CATEGORIES.map((c) => <option key={c} value={c}>{c.replace(/_/g, " ")}</option>)}
+                  </select>
+                </label>
+              )}
+              <Turnstile onToken={setTurnstile} />
+              {error && <p className="rounded-xl bg-danger/10 p-3 text-sm text-danger">{error}</p>}
+              <button onClick={submit} disabled={submitting || (needsPick && !category) || (!!process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY && !turnstile)} className="btn-primary py-6 text-base">
+                {submitting ? "Submitting…" : "Submit report"}
+              </button>
+              <button className="btn-ghost" onClick={() => setStep(3)} disabled={submitting}>Edit details</button>
+              <p className="text-xs text-muted">Public: blurred photo, problem type, summary and area. Never public: your name, email, exact device location and voice note.</p>
+            </div>
+          )}
+        </section>
       )}
     </div>
   );
@@ -275,46 +328,42 @@ export default function ReportFlow() {
 function AnalysisPanel({ a }: { a: Analysis }) {
   const r = a.record;
   return (
-    <section className="rounded-lg border p-3 text-sm">
-      <h2 className="mb-1 font-medium">What we see</h2>
-      {a.message && <p className="mb-1 text-amber-700 dark:text-amber-400">{a.message}</p>}
+    <div className="card flex flex-col gap-2">
+      <span className="eyebrow">What the AI sees</span>
+      {a.message && <p className="rounded-xl bg-warn/10 p-3 text-sm text-warn">{a.message}</p>}
       {r?.is_civic_issue && (
         <>
-          <p>
-            {(r.category ?? "unknown").replace(/_/g, " ")}
-            {r.subtype && ` · ${r.subtype.replace(/_/g, " ")}`} · damage {r.damage_level}
-            {a.low_confidence && " · please confirm"}
-          </p>
-          <p className="opacity-80">{r.summary_en}</p>
-          {r.summary_local && <p className="opacity-80">{r.summary_local}</p>}
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-lg font-semibold capitalize">{(r.category ?? "unknown").replace(/_/g, " ")}</h3>
+            {r.subtype && <span className="chip">{r.subtype.replace(/_/g, " ")}</span>}
+            <SeverityBadge band={{ none: "low", minor: "low", moderate: "medium", major: "high", severe: "critical" }[r.damage_level]} />
+            {a.low_confidence && <span className="chip border-warn/40 text-warn">please confirm</span>}
+          </div>
+          <p className="text-sm">{r.summary_en}</p>
+          {r.summary_local && <p className="text-sm text-muted">{r.summary_local}</p>}
         </>
       )}
-    </section>
+    </div>
   );
 }
 
 function PlacePanel({ p }: { p: PlaceInfo }) {
   return (
-    <section className="rounded-lg border p-3 text-sm">
-      <h2 className="mb-1 font-medium">This location{p.cached && <span className="opacity-60"> (cached)</span>}</h2>
-      {!p.in_india && <p className="text-amber-700">This point seems to be outside India.</p>}
-      <ul className="flex flex-col gap-0.5">
+    <div className="card flex flex-col gap-2 text-sm">
+      <span className="eyebrow">This location {p.cached && "· cached"}</span>
+      {!p.in_india && <p className="text-warn">This point seems to be outside India.</p>}
+      <ol className="flex flex-col gap-1">
         {p.admin_chain.map((c) => (
-          <li key={c.level}>
-            <span className="opacity-60">{c.level.replace("_", " ")}:</span> {c.name}
-            {c.lgd_type && <span className="opacity-60"> ({c.lgd_type})</span>}
-            {c.lgd_code && <span className="opacity-60"> · LGD {c.lgd_code}</span>}
+          <li key={c.level} className="flex flex-wrap items-baseline gap-x-2">
+            <span className="w-24 shrink-0 text-xs text-muted capitalize">{c.level.replace("_", " ")}</span>
+            <span className="font-medium">{c.name}</span>
+            {c.lgd_type && <span className="text-xs text-muted">{c.lgd_type}</span>}
+            {c.lgd_code && <span className="chip px-1.5 font-mono text-[10px]">LGD {c.lgd_code}</span>}
           </li>
         ))}
-      </ul>
-      {p.road && (
-        <p className="mt-1 opacity-80">
-          Road: {p.road.name ?? p.road.ref ?? "unnamed"} ({p.road.highway}, {Math.round(p.road.distance_m)} m)
-        </p>
-      )}
-      {p.warnings.map((w) => (
-        <p key={w} className="text-amber-700">{w}</p>
-      ))}
-    </section>
+      </ol>
+      {p.road && <p className="text-muted">Road: {p.road.name ?? p.road.ref ?? "unnamed"} · {p.road.highway} · {Math.round(p.road.distance_m)} m</p>}
+      {p.warnings.map((w) => <p key={w} className="text-xs text-warn">{w}</p>)}
+    </div>
   );
 }

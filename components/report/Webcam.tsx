@@ -3,7 +3,7 @@
 // Live webcam capture for laptops (phones use the rear camera via the file input).
 import { useEffect, useRef, useState } from "react";
 
-export default function Webcam({ onCapture }: { onCapture: (photo: Blob) => void }) {
+export default function Webcam({ onCapture, retake = false }: { onCapture: (photo: Blob) => void; retake?: boolean }) {
   const video = useRef<HTMLVideoElement>(null);
   const [on, setOn] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -30,13 +30,13 @@ export default function Webcam({ onCapture }: { onCapture: (photo: Blob) => void
     c.toBlob((b) => b && (onCapture(b), setOn(false)), "image/jpeg", 0.9);
   }
 
-  if (!on) return <button onClick={() => setOn(true)} className="rounded-md border px-3 py-2 text-sm">Use webcam (live photo)</button>;
+  if (!on) return <button onClick={() => setOn(true)} className={retake ? "btn-ghost" : "btn-primary py-6 text-base"}>{retake ? "Retake with webcam" : "Open webcam"}</button>;
   return (
     <div className="flex flex-col gap-2">
-      {err ? <p className="text-sm text-red-600">{err}</p> : <video ref={video} autoPlay playsInline muted className="rounded-lg" />}
-      <div className="flex gap-2">
-        <button onClick={snap} disabled={!!err} className="rounded-md bg-foreground px-3 py-1.5 text-sm text-background">Capture</button>
-        <button onClick={() => setOn(false)} className="rounded-md border px-3 py-1.5 text-sm">Cancel</button>
+      {err ? <p className="rounded-xl bg-danger/10 p-3 text-sm text-danger">{err}</p> : <video ref={video} autoPlay playsInline muted className="w-full rounded-xl bg-black" />}
+      <div className="grid grid-cols-2 gap-2">
+        <button onClick={snap} disabled={!!err} className="btn-primary">Capture</button>
+        <button onClick={() => setOn(false)} className="btn-ghost">Cancel</button>
       </div>
     </div>
   );

@@ -31,12 +31,12 @@ export default function SignInButton({ next = "/" }: { next?: string }) {
 
   if (inApp) {
     return (
-      <div className="max-w-sm rounded-lg border border-amber-500/50 bg-amber-500/10 p-4 text-sm">
+      <div className="max-w-sm rounded-xl border border-warn/40 bg-warn/10 p-4 text-sm">
         <p>
           Google sign-in doesn&apos;t work inside {inApp}. Open this page in Chrome or Safari to report.
         </p>
         <button
-          className="mt-3 rounded-md border px-3 py-1.5"
+          className="btn-ghost mt-3"
           onClick={async () => {
             await navigator.clipboard.writeText(window.location.href);
             setCopied(true);
@@ -53,7 +53,7 @@ export default function SignInButton({ next = "/" }: { next?: string }) {
       <button
         onClick={signIn}
         disabled={loading}
-        className="rounded-md bg-foreground px-4 py-2 text-background disabled:opacity-60"
+        className="btn-primary w-full max-w-xs"
       >
         {loading ? "Opening Google..." : "Continue with Google"}
       </button>
@@ -77,14 +77,15 @@ function DemoSignIn({ next }: { next: string }) {
 
   return (
     <div className="flex flex-col items-center gap-2 text-sm">
-      <button onClick={() => go("tester")} className="rounded-md border px-3 py-1.5">Try as a tester (no Google needed)</button>
+      <div className="flex w-full max-w-xs items-center gap-3 text-xs text-muted"><span className="h-px flex-1 bg-line" />or<span className="h-px flex-1 bg-line" /></div>
+      <button onClick={() => go("tester")} className="btn-ghost w-full max-w-xs">Try as a tester (no Google needed)</button>
       {showCode ? (
         <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); go("judge"); }}>
-          <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="Judge access code" className="rounded-md border bg-transparent px-2 py-1" />
-          <button className="rounded-md border px-3 py-1">Enter</button>
+          <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="Judge access code" className="input font-mono" />
+          <button className="btn-ghost">Enter</button>
         </form>
       ) : (
-        <button onClick={() => setShowCode(true)} className="text-xs underline opacity-70">Judge access</button>
+        <button onClick={() => setShowCode(true)} className="text-xs text-muted underline">Judge access</button>
       )}
       {msg && <p className="text-xs">{msg}</p>}
     </div>
