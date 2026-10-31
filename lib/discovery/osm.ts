@@ -2,8 +2,17 @@
 // and Nominatim (address). Nothing about any place is stored in code.
 
 const UA = () => process.env.OSM_USER_AGENT ?? "NagarNetra/0.1";
-const overpassUrls = () =>
-  (process.env.OVERPASS_URLS ?? "https://overpass-api.de/api/interpreter").split(",").map((u) => u.trim()).filter(Boolean);
+// Public Overpass servers are often overloaded; the env list comes first, then these backups.
+const BACKUP_OVERPASS = [
+  "https://overpass-api.de/api/interpreter",
+  "https://overpass.openstreetmap.fr/api/interpreter",
+  "https://overpass.private.coffee/api/interpreter",
+  "https://overpass.kumi.systems/api/interpreter",
+  "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+];
+const overpassUrls = () => [
+  ...new Set([...(process.env.OVERPASS_URLS ?? "").split(",").map((u) => u.trim()).filter(Boolean), ...BACKUP_OVERPASS]),
+];
 
 export type OsmElement = {
   type: "node" | "way" | "relation" | "area";
@@ -37,44 +46,51 @@ async function fetchWithTimeout(url: string, init: RequestInit, ms: number): Pro
   return fetch(url, { ...init, signal: AbortSignal.timeout(ms), headers: { "User-Agent": UA(), ...init.headers } });
 }
 
-// Hedged requests within ONE shared time budget: start the primary, and if it hasn't answered
-// within HEDGE_MS start the next server too (and so on). The first good answer wins and the rest
-// are aborted, so one hanging server can't use up the whole budget.
-const HEDGE_MS = 2500;
+// Hedged requests within ONE shared time budget: start the first server; start the next one as soon
+// as a server fails, or after HEDGE_MS if it is just slow. The first good answer wins and the rest
+// are aborted, so dead or hanging servers can't use up the budget.
+const HEDGE_MS = 1500;
 
-export async function fetchOverpass(lat: number, lon: number, budgetMs = 8000): Promise<{ elements: OsmElement[]; server: string }> {
+export async function fetchOverpass(lat: number, lon: number, budgetMs = 9000): Promise<{ elements: OsmElement[]; server: string }> {
   const urls = overpassUrls();
   const errors: string[] = [];
   const stop = new AbortController();
-  const budget = AbortSignal.timeout(budgetMs);
+  const signal = AbortSignal.any([stop.signal, AbortSignal.timeout(budgetMs)]);
   const body = overpassQuery(lat, lon);
 
-  const attempt = async (url: string, delayMs: number) => {
-    if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
-    if (stop.signal.aborted || budget.aborted) throw new Error("skipped");
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        body: new URLSearchParams({ data: body }),
-        headers: { "User-Agent": UA() },
-        signal: AbortSignal.any([stop.signal, budget]),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = (await res.json()) as { elements: OsmElement[] };
-      return { elements: json.elements ?? [], server: url };
-    } catch (err) {
-      if (!stop.signal.aborted) errors.push(`${new URL(url).host}: ${budget.aborted ? "timeout" : (err as Error).message}`);
-      throw err;
-    }
-  };
-
-  try {
-    const result = await Promise.any(urls.map((url, i) => attempt(url, i * HEDGE_MS)));
-    stop.abort();
-    return result;
-  } catch {
-    throw new Error(`all Overpass servers failed (${errors.join("; ")})`);
-  }
+  return new Promise((resolve, reject) => {
+    let next = 0, running = 0, done = false, timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = () => {
+      if (!done && running === 0 && next >= urls.length) {
+        done = true;
+        reject(new Error(`all Overpass servers failed (${errors.join("; ")})`));
+      }
+    };
+    const launch = () => {
+      clearTimeout(timer);
+      if (done || signal.aborted || next >= urls.length) return finish();
+      const url = urls[next++];
+      running++;
+      timer = setTimeout(launch, HEDGE_MS);
+      fetch(url, { method: "POST", body: new URLSearchParams({ data: body }), headers: { "User-Agent": UA() }, signal })
+        .then(async (res) => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const json = (await res.json()) as { elements: OsmElement[] };
+          if (done) return;
+          done = true;
+          clearTimeout(timer);
+          stop.abort();
+          resolve({ elements: json.elements ?? [], server: url });
+        })
+        .catch((err) => {
+          if (!done) errors.push(`${new URL(url).host}: ${signal.aborted ? "timeout" : (err as Error).message}`);
+          running--;
+          if (signal.aborted) { next = urls.length; finish(); } else launch(); // failed fast: try the next server now
+        });
+    };
+    signal.addEventListener("abort", () => { clearTimeout(timer); next = urls.length; if (!done) setTimeout(finish, 0); });
+    launch();
+  });
 }
 
 export type NominatimResult = {
