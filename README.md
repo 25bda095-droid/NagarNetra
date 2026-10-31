@@ -8,7 +8,7 @@ NagarNetra is an India-wide AI civic triage and accountability platform. A citiz
 
 | | |
 |---|---|
-| **Live app** | `https://nagarnetra-omega.vercel.app/` (best on a phone; on a laptop use the webcam or Assisted mode) |
+| **Live app** | https://nagarnetra-omega.vercel.app/ (best on a phone; on a laptop use the webcam or Assisted mode) |
 | **Licence** | Apache-2.0 |
 
 > Judges: the access code for the moderator console is in the private submission form, never in this repository.
