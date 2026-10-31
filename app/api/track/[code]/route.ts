@@ -16,8 +16,9 @@ export async function GET(_req: Request, { params }: RouteContext<"/api/track/[c
     ]);
     // the evidence hash and exact device position are not public
     const trace = (steps ?? []).map((s) => (s.step === "evidence" ? { ...s, output: { reused: s.output?.reused, blurred: s.output?.blurred } } : s));
-    const { id: _, ...report } = r; // eslint-disable-line @typescript-eslint/no-unused-vars
-    return Response.json({ code, report, trace, incident: inc.data, events: events.data ?? [] });
+    // report_id lets the signed-in reporter subscribe to the live trace (Realtime, RLS: own reports only)
+    const { id: report_id, ...report } = r;
+    return Response.json({ code, report_id, report, trace, incident: inc.data, events: events.data ?? [] });
   } catch (err) {
     return errorResponse(err);
   }

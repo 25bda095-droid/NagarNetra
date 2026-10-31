@@ -4,10 +4,12 @@
 // and for its reporters: Forwarded / ticket / after-photo verification.
 import { useCallback, useEffect, useState } from "react";
 import { api, upload } from "@/components/report/ReportFlow";
+import { createClient } from "@/lib/supabase/client";
 
 type Step = { step: string; status: string; output: Record<string, unknown> | null; sources: string[]; ms: number | null; confidence: number | null; error: string | null };
 type Data = {
   code: string | null;
+  report_id?: string;
   report: null | { status: string; mode: string; category: string | null; evidence_score: number | null; evidence_factors: Record<string, number> | null; photo_path: string | null };
   trace: Step[];
   incident: Record<string, string | number | null> | null;
@@ -44,16 +46,31 @@ export default function TrackView({ code, incidentId }: { code?: string; inciden
     return j as Data;
   }), [code, incidentId]);
 
+  // Live trace: Supabase Realtime pushes each pipeline step to the reporter (RLS allows own reports
+  // only). Polling stays as the fallback for everyone else, slower when Realtime is connected.
+  const [live, setLive] = useState(false);
+  const reportId = d?.report_id;
+  useEffect(() => {
+    if (!reportId) return;
+    const supabase = createClient();
+    const ch = supabase
+      .channel(`trace-${reportId}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "pipeline_steps", filter: `report_id=eq.${reportId}` }, () => void load())
+      .subscribe((status) => setLive(status === "SUBSCRIBED"));
+    return () => void supabase.removeChannel(ch);
+  }, [reportId, load]);
+
   useEffect(() => {
     let n = 0;
+    let t: ReturnType<typeof setTimeout>;
     const tick = async () => {
       const j = await load().catch(() => null);
       const done = !code || j?.trace?.some((s) => s.step === "route" || (s.step === "merge" && s.status === "skipped")) || j?.report?.status === "rejected";
-      if (!done && ++n < 40) t = setTimeout(tick, 2000);
+      if (!done && ++n < 40) t = setTimeout(tick, live ? 5000 : 2000);
     };
-    let t = setTimeout(tick, 0);
+    t = setTimeout(tick, 0);
     return () => clearTimeout(t);
-  }, [load]);
+  }, [load, code, live]);
 
   async function setStatus(status: string) {
     try {
@@ -91,7 +108,7 @@ export default function TrackView({ code, incidentId }: { code?: string; inciden
       {inc?.severity_band === "critical" && <div className="rounded-lg border border-red-600 bg-red-600/10 p-3 text-sm">Danger to life? Call <a href="tel:112" className="underline">112</a>.</div>}
 
       {d.code && <section className="rounded-lg border p-3 text-sm">
-        <h2 className="mb-2 font-medium">AI agent trace</h2>
+        <h2 className="mb-2 font-medium">AI agent trace {live && <span className="text-xs font-normal text-green-600">● live</span>}</h2>
         <ol className="flex flex-col gap-1.5">
           {STEPS.map((k) => {
             const s = byStep.get(k);
