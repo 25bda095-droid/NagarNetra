@@ -12,13 +12,15 @@ import { distanceM } from "@/lib/discovery/osm";
 
 export const maxDuration = 60;
 
+const INDIA = "NagarNetra works for places in India only.";
+
 const Body = z.object({
   analysis_id: z.uuid().nullish(),
   idempotency_key: z.string().min(8).max(64),
   mode: z.enum(["live", "assisted"]),
   device: z.enum(["phone", "laptop", "tablet", "unknown"]).default("unknown"),
-  lat: z.number().min(5).max(38),
-  lon: z.number().min(67).max(98),
+  lat: z.number().min(5, INDIA).max(38, INDIA),
+  lon: z.number().min(67, INDIA).max(98, INDIA),
   accuracy_m: z.number().min(0).max(100000).nullish(),
   pin: z.object({ lat: z.number().min(5).max(38), lon: z.number().min(67).max(98) }).nullish(),
   captured_at: z.iso.datetime().nullish(),
