@@ -37,24 +37,44 @@ async function fetchWithTimeout(url: string, init: RequestInit, ms: number): Pro
   return fetch(url, { ...init, signal: AbortSignal.timeout(ms), headers: { "User-Agent": UA(), ...init.headers } });
 }
 
-// Tries each Overpass server in turn (primary, then backups) within ONE shared time budget,
-// so busy servers can never make a lookup slow; Nominatim already covers the essentials.
+// Hedged requests within ONE shared time budget: start the primary, and if it hasn't answered
+// within HEDGE_MS start the next server too (and so on). The first good answer wins and the rest
+// are aborted, so one hanging server can't use up the whole budget.
+const HEDGE_MS = 2500;
+
 export async function fetchOverpass(lat: number, lon: number, budgetMs = 8000): Promise<{ elements: OsmElement[]; server: string }> {
+  const urls = overpassUrls();
   const errors: string[] = [];
-  const deadline = Date.now() + budgetMs;
-  for (const url of overpassUrls()) {
-    const remaining = deadline - Date.now();
-    if (remaining < 500) break;
+  const stop = new AbortController();
+  const budget = AbortSignal.timeout(budgetMs);
+  const body = overpassQuery(lat, lon);
+
+  const attempt = async (url: string, delayMs: number) => {
+    if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
+    if (stop.signal.aborted || budget.aborted) throw new Error("skipped");
     try {
-      const res = await fetchWithTimeout(url, { method: "POST", body: new URLSearchParams({ data: overpassQuery(lat, lon) }) }, remaining);
+      const res = await fetch(url, {
+        method: "POST",
+        body: new URLSearchParams({ data: body }),
+        headers: { "User-Agent": UA() },
+        signal: AbortSignal.any([stop.signal, budget]),
+      });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = (await res.json()) as { elements: OsmElement[] };
       return { elements: json.elements ?? [], server: url };
     } catch (err) {
-      errors.push(`${new URL(url).host}: ${(err as Error).message}`);
+      if (!stop.signal.aborted) errors.push(`${new URL(url).host}: ${budget.aborted ? "timeout" : (err as Error).message}`);
+      throw err;
     }
+  };
+
+  try {
+    const result = await Promise.any(urls.map((url, i) => attempt(url, i * HEDGE_MS)));
+    stop.abort();
+    return result;
+  } catch {
+    throw new Error(`all Overpass servers failed (${errors.join("; ")})`);
   }
-  throw new Error(`all Overpass servers failed (${errors.join("; ")})`);
 }
 
 export type NominatimResult = {

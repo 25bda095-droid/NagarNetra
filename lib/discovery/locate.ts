@@ -141,9 +141,8 @@ export async function locate(db: SupabaseClient, lat: number, lon: number, opts:
     cached: false,
   };
 
-  // cache only when the address lookup worked, so a temporary outage isn't remembered for 30 days
-  // (Overpass detail is optional; a later lookup refreshes it once the cache expires)
-  if (nom) {
+  // cache only when both lookups worked, so a temporary outage isn't remembered for 30 days
+  if (nom && osm) {
     await db.from("places_cache").upsert({
       cell_id: cell, osm_admin: osm?.admin ?? null, nominatim: { display_name: nom.display_name, address: addr }, lgd_match: info,
       road: info.road, nearby: info.nearby, offices: info.offices, fetched_at: info.fetched_at,
