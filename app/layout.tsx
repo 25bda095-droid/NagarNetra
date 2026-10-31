@@ -1,4 +1,6 @@
-import Link from "next/link";
+import { Suspense } from "react";
+import Nav from "@/components/Nav";
+import EyeBackdrop from "@/components/EyeBackdrop";
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
@@ -24,14 +26,13 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">
-        <nav className="flex flex-wrap items-center gap-4 border-b px-4 py-2 text-sm">
-          <Link href="/" className="font-semibold">NagarNetra</Link>
-          <Link href="/report">Report</Link>
-          <Link href="/stats">Stats</Link>
-          <Link href="/me">My reports</Link>
-        </nav>
-        {children}
+      <body className="flex min-h-full flex-col pb-16 sm:pb-0">
+        <EyeBackdrop />
+        {/* the nav highlights the current path, which is request data on dynamic pages */}
+        <Suspense fallback={<div className="h-14 border-b bg-surface" />}>
+          <Nav />
+        </Suspense>
+        <div className="flex flex-1 flex-col">{children}</div>
       </body>
     </html>
   );
