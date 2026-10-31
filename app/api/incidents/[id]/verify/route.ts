@@ -34,9 +34,15 @@ export async function POST(request: Request, { params }: RouteContext<"/api/inci
 
     const [before, after] = await Promise.all([db.storage.from("public").download(inc.cover_photo_path), db.storage.from("raw").download(b.data.after_photo_path)]);
     if (!before.data || !after.data) throw new HttpError(404, "upload_missing", "Photo not found. Please try again.");
-    const verdict = near
-      ? await compareFix(Buffer.from(await before.data.arrayBuffer()), (await prepareImageForAi(Buffer.from(await after.data.arrayBuffer()))).data)
-      : { same_place: false, fixed: false, reason: `Taken ${Math.round(distance_m)} m away from the incident.`, model: null };
+    let verdict: { same_place: boolean; fixed: boolean; reason: string; model: string | null };
+    try {
+      verdict = near
+        ? await compareFix(Buffer.from(await before.data.arrayBuffer()), (await prepareImageForAi(Buffer.from(await after.data.arrayBuffer()))).data)
+        : { same_place: false, fixed: false, reason: `Taken ${Math.round(distance_m)} m away from the incident.`, model: null };
+    } catch {
+      // quota or outage: don't reopen the incident on an AI failure, just ask to retry
+      throw new HttpError(503, "ai_busy", "Our AI is busy right now (daily limit reached or service down). Please try verifying again later.");
+    }
     if (verdict.model) await db.rpc("record_ai_call", { p_provider: "gemini", p_model: verdict.model });
     const passed = near && verdict.same_place && verdict.fixed;
 

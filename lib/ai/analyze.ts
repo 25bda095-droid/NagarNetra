@@ -114,7 +114,7 @@ export async function analyzeComplaint(input: AnalyzeInput, options: AnalyzeOpti
 // What the citizen sees after analysis (the UI shows it next to the photo).
 export function citizenMessage(record: ComplaintRecord | null): { status: "ok" | "not_civic" | "poor_quality" | "pending"; message: string } {
   if (!record) {
-    return { status: "pending", message: "We couldn't analyse this right now. Pick the issue type yourself and submit; we'll analyse it later." };
+    return { status: "pending", message: "Our AI is busy right now (daily limit reached or service down). Pick the issue type yourself and submit; a moderator will review it." };
   }
   // a blurry or dark photo can't be judged, so ask for a retake before deciding it isn't civic
   if (record.image_quality === "poor") {

@@ -28,9 +28,14 @@ type Analysis = {
 const HAZARD_WORDS = /\b(wire|current|spark|shock|fire|smoke|manhole|collapse|flood|bijli|taar|aag)\b/i;
 
 export async function api<T>(url: string, body: unknown): Promise<T> {
-  const res = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  let res: Response;
+  try {
+    res = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  } catch {
+    throw new Error(navigator.onLine ? "Couldn't reach NagarNetra. Please try again in a moment." : "You're offline. Check your internet connection and try again.");
+  }
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json.message ?? `Request failed (${res.status})`);
+  if (!res.ok) throw new Error(json.message ?? (res.status >= 500 ? "Our server had a problem. Please try again in a minute." : `Request failed (${res.status})`));
   return json as T;
 }
 
