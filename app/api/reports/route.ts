@@ -8,6 +8,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { errorResponse, HttpError } from "@/lib/http";
 import { runPipeline } from "@/lib/pipeline/run";
 import { CATEGORIES } from "@/lib/ai/schema";
+import { distanceM } from "@/lib/discovery/osm";
 
 export const maxDuration = 60;
 
@@ -65,6 +66,16 @@ export async function POST(request: Request) {
     }
     if (!analysis?.record?.category && !b.category) throw new HttpError(400, "category_required", "Please choose what kind of problem this is.");
 
+    // live reports: photo taken just now, at this spot (no downloaded or old photos)
+    if (b.mode === "live") {
+      const age = b.captured_at ? (Date.now() - Date.parse(b.captured_at)) / 1000 : Infinity;
+      if (age > 15 * 60 || age < -120) throw new HttpError(422, "photo_not_live", "Please take a new photo now, at the problem's location.");
+    }
+    // the pin can only fine-tune the GPS position, not move the report somewhere else
+    if (b.pin) {
+      const allowed = Math.min(1000, Math.max(150, 2 * (b.accuracy_m ?? 0)));
+      if (distanceM({ lat: b.lat, lon: b.lon }, b.pin) > allowed) throw new HttpError(422, "pin_too_far", `The pin can only be moved up to ${Math.round(allowed)} m from where you are. You must be at the problem's location.`);
+    }
     const point = b.pin ?? { lat: b.lat, lon: b.lon };
     const { data: report, error } = await db.from("reports").insert({
       user_id: user.userId,

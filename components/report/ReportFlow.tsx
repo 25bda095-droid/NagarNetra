@@ -162,16 +162,16 @@ export default function ReportFlow() {
         Assisted mode (no photo: describe it by voice or text, marked as assisted)
       </label>
 
-      {!assisted && !isPhone && !preview && <Webcam onCapture={(b) => takePhoto(b, Date.now())} />}
+      {!assisted && !isPhone && <Webcam onCapture={(b) => takePhoto(b, Date.now())} />}
 
-      {!assisted && <label className="flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed p-4 text-center">
+      {!assisted && (isPhone || preview) && <label className="flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed p-4 text-center">
         {preview ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={preview} alt="Your photo" className="max-h-72 rounded-md object-contain" />
         ) : (
           <span>Take a photo of the problem</span>
         )}
-        <span className="text-sm opacity-70">{preview ? "Tap to retake" : isPhone ? "Opens the rear camera" : "Or choose a photo file"}</span>
+        <span className="text-sm opacity-70">{preview ? (isPhone ? "Tap to retake" : "Live webcam photo") : "Opens the rear camera"}</span>
         <input
           type="file"
           accept="image/jpeg,image/png,image/webp"
@@ -179,7 +179,7 @@ export default function ReportFlow() {
           className="hidden"
           onChange={(e) => {
             const f = e.target.files?.[0];
-            if (f) takePhoto(f, f.lastModified); // an old gallery photo gets a lower evidence score
+            if (f) takePhoto(f, f.lastModified); // a gallery photo keeps its old time and is refused on submit
           }}
         />
       </label>}
