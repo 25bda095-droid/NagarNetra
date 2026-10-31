@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import Link from "next/link";
 import HomeStats from "@/components/HomeStats";
 import IncidentMap from "@/components/IncidentMap";
+import TrackSearch from "@/components/TrackSearch";
 import SignInButton from "@/components/SignInButton";
 import { getCurrentUser } from "@/lib/guards/auth";
 
@@ -20,6 +21,8 @@ export default function Home({ searchParams }: PageProps<"/">) {
       <Link href="/report" className="rounded-md bg-red-600 px-5 py-2.5 font-medium text-white">
         Report an issue
       </Link>
+
+      <TrackSearch />
 
       <HomeStats />
 
