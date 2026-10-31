@@ -8,6 +8,7 @@ export type CurrentUser = {
   userId: string;
   provider: string | null;
   isModerator: boolean;
+  isTester: boolean; // shared "Try as a tester" account: email login, citizen powers only
 };
 
 // Reads and verifies the session from cookies. Returns null when signed out.
@@ -23,6 +24,7 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
     userId: data.claims.sub,
     provider: appMeta.provider ?? null,
     isModerator: appMeta.role === "moderator",
+    isTester: appMeta.role === "tester",
   };
 }
 
@@ -31,7 +33,7 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
 export async function requireUser(): Promise<CurrentUser> {
   const user = await getCurrentUser();
   if (!user) throw new HttpError(401, "not_signed_in", "Please sign in with Google to continue.");
-  if (user.provider !== "google" && !user.isModerator) {
+  if (user.provider !== "google" && !user.isModerator && !user.isTester) {
     throw new HttpError(403, "google_required", "Please sign in with Google to report.");
   }
   return user;

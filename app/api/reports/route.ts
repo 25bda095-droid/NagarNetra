@@ -43,9 +43,14 @@ export async function POST(request: Request) {
 
     const ip = await clientIp();
     await verifyTurnstile(b.turnstile_token, ip);
+    // the shared tester account is used by many people, so it's limited per network instead of per user
     await enforceRateLimits([
-      { key: `report:user:${user.userId}`, windowSeconds: 3600, max: 5 },
-      { key: `report:user:day:${user.userId}`, windowSeconds: 86400, max: 20 },
+      ...(user.isTester
+        ? [{ key: `report:tester:day`, windowSeconds: 86400, max: 200 }]
+        : [
+            { key: `report:user:${user.userId}`, windowSeconds: 3600, max: 5 },
+            { key: `report:user:day:${user.userId}`, windowSeconds: 86400, max: 20 },
+          ]),
       { key: `report:ip:${ip}`, windowSeconds: 3600, max: 10 },
     ]);
 

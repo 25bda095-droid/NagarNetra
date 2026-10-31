@@ -49,12 +49,44 @@ export default function SignInButton({ next = "/" }: { next?: string }) {
   }
 
   return (
-    <button
-      onClick={signIn}
-      disabled={loading}
-      className="rounded-md bg-foreground px-4 py-2 text-background disabled:opacity-60"
-    >
-      {loading ? "Opening Google..." : "Continue with Google"}
-    </button>
+    <div className="flex flex-col items-center gap-3">
+      <button
+        onClick={signIn}
+        disabled={loading}
+        className="rounded-md bg-foreground px-4 py-2 text-background disabled:opacity-60"
+      >
+        {loading ? "Opening Google..." : "Continue with Google"}
+      </button>
+      <DemoSignIn next={next} />
+    </div>
+  );
+}
+
+// "Try as a tester" (shared citizen account) and "Judge access" (moderator, needs the code).
+function DemoSignIn({ next }: { next: string }) {
+  const [code, setCode] = useState("");
+  const [showCode, setShowCode] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  async function go(as: "tester" | "judge") {
+    setMsg("Signing in...");
+    const r = await fetch("/auth/demo", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ as, code }) });
+    if (r.ok) window.location.href = next;
+    else setMsg((await r.json().catch(() => ({}))).message ?? "Sign-in failed.");
+  }
+
+  return (
+    <div className="flex flex-col items-center gap-2 text-sm">
+      <button onClick={() => go("tester")} className="rounded-md border px-3 py-1.5">Try as a tester (no Google needed)</button>
+      {showCode ? (
+        <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); go("judge"); }}>
+          <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="Judge access code" className="rounded-md border bg-transparent px-2 py-1" />
+          <button className="rounded-md border px-3 py-1">Enter</button>
+        </form>
+      ) : (
+        <button onClick={() => setShowCode(true)} className="text-xs underline opacity-70">Judge access</button>
+      )}
+      {msg && <p className="text-xs">{msg}</p>}
+    </div>
   );
 }
