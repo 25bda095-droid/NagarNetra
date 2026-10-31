@@ -10,6 +10,8 @@ import { prepareImageForAi } from "@/lib/media/image";
 import { ownsPath } from "@/lib/media/uploads";
 
 export const maxDuration = 60;
+const MAX_DISTANCE_M = 30;
+const MAX_ACCURACY_SLACK_M = 50; // allowance for GPS error, so at most 80 m
 const Body = z.object({ after_photo_path: z.string().max(200), lat: z.number(), lon: z.number(), accuracy_m: z.number().min(0).max(5000) });
 
 export async function POST(request: Request, { params }: RouteContext<"/api/incidents/[id]/verify">) {
@@ -30,21 +32,27 @@ export async function POST(request: Request, { params }: RouteContext<"/api/inci
     const R = 6371000, toRad = (d: number) => (d * Math.PI) / 180;
     const dLat = toRad(b.data.lat - inc.lat), dLon = toRad(b.data.lon - inc.lon);
     const distance_m = 2 * R * Math.asin(Math.sqrt(Math.sin(dLat / 2) ** 2 + Math.cos(toRad(inc.lat)) * Math.cos(toRad(b.data.lat)) * Math.sin(dLon / 2) ** 2));
-    const near = distance_m <= 50 + Math.min(b.data.accuracy_m, 100);
+    // the fix must be photographed where the problem was reported
+    const allowed = Math.round(MAX_DISTANCE_M + Math.min(b.data.accuracy_m, MAX_ACCURACY_SLACK_M));
+    if (distance_m > allowed) {
+      throw new HttpError(422, "too_far", `You are ${Math.round(distance_m)} m from the reported spot. Go to the problem's location (within ${allowed} m) and take the photo there.`);
+    }
 
-    const [before, after] = await Promise.all([db.storage.from("public").download(inc.cover_photo_path), db.storage.from("raw").download(b.data.after_photo_path)]);
-    if (!before.data || !after.data) throw new HttpError(404, "upload_missing", "Photo not found. Please try again.");
+    // the bucket is named "public", which clashes with the storage download path, so read it via its public URL
+    const beforeUrl = db.storage.from("public").getPublicUrl(inc.cover_photo_path).data.publicUrl;
+    const [beforeRes, after] = await Promise.all([fetch(beforeUrl, { signal: AbortSignal.timeout(10000) }), db.storage.from("raw").download(b.data.after_photo_path)]);
+    if (!beforeRes.ok) throw new HttpError(404, "before_missing", "The original photo couldn't be loaded. Please try again.");
+    if (!after.data) throw new HttpError(404, "upload_missing", "Your photo didn't upload. Please try again.");
+    const before = { data: new Blob([await beforeRes.arrayBuffer()]) };
     let verdict: { same_place: boolean; fixed: boolean; reason: string; model: string | null };
     try {
-      verdict = near
-        ? await compareFix(Buffer.from(await before.data.arrayBuffer()), (await prepareImageForAi(Buffer.from(await after.data.arrayBuffer()))).data)
-        : { same_place: false, fixed: false, reason: `Taken ${Math.round(distance_m)} m away from the incident.`, model: null };
+      verdict = await compareFix(Buffer.from(await before.data.arrayBuffer()), (await prepareImageForAi(Buffer.from(await after.data.arrayBuffer()))).data);
     } catch {
       // quota or outage: don't reopen the incident on an AI failure, just ask to retry
       throw new HttpError(503, "ai_busy", "Our AI is busy right now (daily limit reached or service down). Please try verifying again later.");
     }
     if (verdict.model) await db.rpc("record_ai_call", { p_provider: "gemini", p_model: verdict.model });
-    const passed = near && verdict.same_place && verdict.fixed;
+    const passed = verdict.same_place && verdict.fixed;
 
     await db.from("verifications").insert({ incident_id: id, user_id: user.userId, after_photo_path: b.data.after_photo_path, distance_m, ai_verdict: verdict, passed });
     const status = passed ? "resolved_verified" : "reopened";
