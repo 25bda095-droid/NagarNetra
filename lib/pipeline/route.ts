@@ -39,18 +39,46 @@ async function sparql(q: string): Promise<Record<string, { value: string }>[]> {
   return (await r.json()).results.bindings;
 }
 
-type Found = { name: string; website: string | null; sources: string[]; found_by: string[] };
+type Found = { name: string; website: string | null; sources: string[]; found_by: string[]; via?: string };
+
+// District administration's official site (Wikidata P856): the escalation channel when a
+// local body (often a gram panchayat) has no website of its own.
+// Uses the OSM Wikidata id, or (when Overpass was down) finds the "district of India" item by name.
+async function districtSite(place: PlaceInfo): Promise<{ name: string; url: string; source: string } | null> {
+  const wd = place.wikidata.district;
+  const name = place.admin_chain.find((c) => c.level === "district")?.name.replace(/["\\]/g, "");
+  if (!wd && !name) return null;
+  const item = wd ? `wd:${wd}` : "?d";
+  // exact English labels hit Wikidata's label index (fast); LGD names can be upper case
+  const title = (name ?? "").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+  const find = wd ? "" : `VALUES ?n { "${title} district"@en "${title}"@en } ?d rdfs:label ?n; wdt:P31/wdt:P279* wd:Q1149652 .`;
+  try {
+    const rows = await sparql(`SELECT ?d ?l ?site WHERE { ${find} ${item} rdfs:label ?l FILTER(lang(?l)="en") ${item} wdt:P856 ?site } LIMIT 5`);
+    const row = rows.find((r) => isGovDomain(r.site.value));
+    const id = wd ?? row?.d?.value.split("/").pop();
+    return row ? { name: row.l.value, url: row.site.value, source: `https://www.wikidata.org/wiki/${id}` } : null;
+  } catch {
+    return null;
+  }
+}
 
 async function findAuthority(agency: AgencyType, place: PlaceInfo, scopeName: string): Promise<Found | null> {
   if (agency === "local_body") {
+    let found: Found = { name: scopeName, website: null, sources: [], found_by: ["lgd"] };
     const wd = place.wikidata.local_body;
     if (wd) {
-      const rows = await sparql(`SELECT ?l ?site WHERE { wd:${wd} rdfs:label ?l FILTER(lang(?l)="en") OPTIONAL { wd:${wd} wdt:P856 ?site } } LIMIT 1`);
-      if (rows[0]) return { name: rows[0].l.value, website: rows[0].site?.value ?? null, sources: [`https://www.wikidata.org/wiki/${wd}`], found_by: ["wikidata"] };
+      const rows = await sparql(`SELECT ?l ?site WHERE { wd:${wd} rdfs:label ?l FILTER(lang(?l)="en") OPTIONAL { wd:${wd} wdt:P856 ?site } } LIMIT 1`).catch(() => []);
+      if (rows[0]) found = { name: rows[0].l.value, website: rows[0].site?.value ?? null, sources: [`https://www.wikidata.org/wiki/${wd}`], found_by: ["wikidata"] };
     }
-    const office = place.offices.find((o) => o.name && /(municipal|corporation|nagar|panchayat|council|town)/i.test(o.name));
-    if (office) return { name: office.name!, website: office.website, sources: [office.source], found_by: ["osm"] };
-    return { name: scopeName, website: null, sources: [], found_by: ["lgd"] };
+    if (!found.website) {
+      const office = place.offices.find((o) => o.name && /(municipal|corporation|nagar|panchayat|council|town)/i.test(o.name));
+      if (office) found = { name: office.name!, website: office.website, sources: [office.source], found_by: ["osm"] };
+    }
+    if (!found.website || !isGovDomain(found.website)) {
+      const d = await districtSite(place);
+      if (d) found = { ...found, website: d.url, sources: [...found.sources, d.source], found_by: [...found.found_by, "wikidata_district"], via: `${d.name} district administration` };
+    }
+    return found;
   }
   const words = STATE_AGENCIES[agency];
   const state = place.wikidata.state;
@@ -88,26 +116,32 @@ export async function routeIncident(db: SupabaseClient, i: { incidentId: string;
     let { data: auth } = await q.maybeSingle();
     let cacheHit = !!auth;
 
-    if (!auth && place) {
+    // a saved authority without any contact channel is looked up again (sources may have it now)
+    if (place && (!auth || (!auth.portal_url && auth.verification_status === "ai_found"))) {
       const f = await findAuthority(agency, place, scopeUnit?.name ?? "");
-      if (!f) continue; // e.g. no water board here -> next rule (local body)
+      if (!f) {
+        if (auth) break; // keep the saved one
+        continue; // e.g. no water board here -> next rule (local body)
+      }
       const verified = f.website ? isGovDomain(f.website) && (await pageLoads(f.website)) : false;
       const { data } = await db.from("authorities").upsert({
         name: f.name, agency_type: agency, scope_level: scopeLevel, scope_lgd_code: scopeCode, state_lgd: state?.lgd_code ?? null,
         level: agency === "local_body" ? "local" : agency === "national_highway_authority" ? "national" : "state",
         issue_categories: [i.category], portal_url: verified ? f.website : null, source_urls: [...f.sources, ...(f.website ? [f.website] : [])],
-        found_by: f.found_by, verification_status: "ai_found", confidence: verified ? 0.85 : 0.5,
+        found_by: f.found_by, verification_status: "ai_found", confidence: verified ? (f.via ? 0.7 : 0.85) : 0.5,
       }, { onConflict: "agency_type,scope_level,scope_lgd_code" }).select("*").single();
       auth = data;
       cacheHit = false;
     }
     if (!auth) continue;
-    const jurisdiction = agency === "local_body" ? (lb?.lgd_code ? "local_body" : "district") : state?.lgd_code || agency === "national_highway_authority" ? "local_body" : "none";
+    const viaDistrict = (auth.found_by ?? []).includes("wikidata_district");
+    // reached through the district's channel: we know the body, but the contact is one level up
+    const jurisdiction = agency === "local_body" ? (lb?.lgd_code && !viaDistrict ? "local_body" : "district") : state?.lgd_code || agency === "national_highway_authority" ? "local_body" : "none";
     const c = routingConfidence({
       jurisdiction, ruleRank: rank, otherCivic: i.category === "other_civic",
       authority: auth.verification_status === "human_verified" ? "human_verified" : auth.portal_url ? "ai_found" : "none",
     });
-    result = { authority_id: auth.id, name: auth.name, agency, ...c, reason: `${rule.note ?? agency}${cacheHit ? " (cached)" : ""}`, sources: auth.source_urls ?? [] };
+    result = { authority_id: auth.id, name: auth.name, agency, ...c, reason: `${rule.note ?? agency}${viaDistrict ? " · no website of its own, contact via the district administration" : ""}${cacheHit ? " (cached)" : ""}`, sources: auth.source_urls ?? [] };
     break;
   }
   result ??= { authority_id: null, name: null, agency: null, status: "unmapped", confidence: 0, reason: "No authority found for this place yet", sources: [] };
