@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import SignInButton from "@/components/SignInButton";
 import { api } from "@/components/report/ReportFlow";
+import { SeverityBadge, StatusLabel } from "@/components/ui";
 
 type R = { tracking_code: string; status: string; category: string | null; ai_summary: string | null; evidence_score: number | null; submitted_at: string; incidents: { status: string; severity_band: string } | null };
 type P = { nickname: string; leaderboard_opt_in: boolean; is_moderator: boolean };
@@ -34,37 +35,51 @@ export default function Me() {
     if (r.ok) location.href = "/"; else setMsg("Delete failed. Please try again.");
   }
 
-  if (signedOut) return <main className="mx-auto flex max-w-xl flex-col gap-3 px-4 py-8"><p>Sign in to see your reports.</p><SignInButton next="/me" /></main>;
+  if (signedOut) return (
+    <main className="mx-auto flex w-full max-w-xl flex-col gap-4 px-4 py-10">
+      <div className="card flex flex-col items-center gap-4 text-center">
+        <h1 className="text-xl font-semibold">Your reports, on any device</h1>
+        <p className="text-sm text-muted">Sign in to see everything you reported and its progress. Have a tracking code? Use <Link href="/track" className="text-brand underline">Track</Link> instead.</p>
+        <SignInButton next="/me" />
+      </div>
+    </main>
+  );
   return (
-    <main className="mx-auto flex w-full max-w-xl flex-col gap-4 px-4 py-8 text-sm">
+    <main className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-4 py-8 text-sm">
       <h1 className="text-2xl font-semibold">My reports</h1>
-      {profile?.is_moderator && <Link href="/moderate" className="underline">Moderator console</Link>}
-      {reports == null ? <p className="opacity-60">Loading...</p> : reports.length === 0 ? <p className="opacity-70">No reports yet. <Link href="/report" className="underline">Report an issue</Link></p> : (
+      {profile?.is_moderator && <Link href="/moderate" className="btn-primary w-fit">Open moderator console →</Link>}
+      {reports == null ? <div className="card h-32 animate-pulse" /> : reports.length === 0 ? <div className="card flex flex-col items-start gap-3"><p className="text-muted">No reports yet.</p><Link href="/report" className="btn-primary">Report your first issue</Link></div> : (
         <ul className="flex flex-col gap-2">
           {reports.map((r) => (
-            <li key={r.tracking_code} className="rounded-lg border p-3">
-              <Link href={`/track/${r.tracking_code}`} className="font-mono underline">{r.tracking_code}</Link> · {r.category?.replace(/_/g, " ") ?? "pending"} · {r.incidents?.status?.replace(/_/g, " ") ?? r.status}
-              {r.incidents?.severity_band && ` · ${r.incidents.severity_band}`}
-              <p className="opacity-70">{r.ai_summary}</p>
-              <p className="text-xs opacity-50">{new Date(r.submitted_at).toLocaleString()} · evidence {r.evidence_score ?? "…"}</p>
+            <li key={r.tracking_code}>
+              <Link href={`/track/${r.tracking_code}`} className="card flex flex-col gap-1.5 transition hover:border-brand">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-mono font-semibold">{r.tracking_code}</span>
+                  <span className="capitalize">{r.category?.replace(/_/g, " ") ?? "pending"}</span>
+                  <SeverityBadge band={r.incidents?.severity_band} />
+                  {r.incidents ? <StatusLabel status={r.incidents.status} /> : <span className="chip">{r.status.replace(/_/g, " ")}</span>}
+                </div>
+                <p className="text-muted">{r.ai_summary}</p>
+                <p className="text-xs text-muted">{new Date(r.submitted_at).toLocaleString()} · evidence {r.evidence_score ?? "…"}/100</p>
+              </Link>
             </li>
           ))}
         </ul>
       )}
       {profile && (
-        <section className="flex flex-col gap-2 rounded-lg border p-3">
-          <h2 className="font-medium">Public leaderboard</h2>
+        <section className="card flex flex-col gap-3">
+          <h2 className="font-semibold">Public leaderboard</h2>
           <label className="flex items-center gap-2"><input type="checkbox" checked={profile.leaderboard_opt_in} onChange={(e) => save({ leaderboard_opt_in: e.target.checked })} /> Show me on the citizen leaderboard as a nickname (never your name or email)</label>
           <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); save({ nickname: String(new FormData(e.currentTarget).get("n")) }); }}>
-            <input name="n" defaultValue={profile.nickname} className="rounded-md border bg-transparent px-2 py-1" />
-            <button className="rounded-md border px-2 py-1">Save nickname</button>
+            <input name="n" defaultValue={profile.nickname} className="input" />
+            <button className="btn-ghost shrink-0">Save</button>
           </form>
         </section>
       )}
       {msg && <p>{msg}</p>}
       <div className="flex gap-3">
-        <form action="/auth/signout" method="post"><button className="rounded-md border px-3 py-1.5">Sign out</button></form>
-        <button onClick={del} className="rounded-md border border-red-600 px-3 py-1.5 text-red-600">Delete my account</button>
+        <form action="/auth/signout" method="post"><button className="btn-ghost">Sign out</button></form>
+        <button onClick={del} className="btn border-danger/40 text-danger">Delete my account</button>
       </div>
     </main>
   );

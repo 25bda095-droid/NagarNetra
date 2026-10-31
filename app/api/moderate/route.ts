@@ -17,7 +17,7 @@ export async function GET() {
       db.from("ai_usage").select("*").order("day", { ascending: false }).limit(14),
     ]);
     const ids = (queue.data ?? []).filter((q) => q.ref_type === "incident").map((q) => q.ref_id);
-    const { data: incidents } = ids.length ? await db.from("public_incidents").select("id, category, summary, severity_band, routing_status, routing_reason, authority_name, cover_photo_path, admin_chain").in("id", ids) : { data: [] };
+    const { data: incidents } = ids.length ? await db.from("public_incidents").select("id, category, summary, severity_band, routing_status, routing_reason, authority_name, cover_photo_path, admin_chain, status, created_at").in("id", ids) : { data: [] };
     return Response.json({ queue: queue.data ?? [], incidents: incidents ?? [], authorities: authorities.data ?? [], ai_usage: usage.data ?? [] });
   } catch (err) {
     return errorResponse(err);

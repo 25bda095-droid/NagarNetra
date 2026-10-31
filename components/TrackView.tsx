@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, upload } from "@/components/report/ReportFlow";
 import { createClient } from "@/lib/supabase/client";
+import { SeverityBadge, StatusLabel, StatusStepper, Tip } from "@/components/ui";
 
 type Step = { step: string; status: string; output: Record<string, unknown> | null; sources: string[]; ms: number | null; confidence: number | null; error: string | null };
 type Data = {
@@ -92,66 +93,114 @@ export default function TrackView({ code, incidentId }: { code?: string; inciden
     }, () => setMsg("Location is needed to verify a fix."), { enableHighAccuracy: true });
   }
 
-  if (err) return <p className="text-red-600">{err}</p>;
-  if (!d) return <p className="opacity-60">Loading...</p>;
+  if (err) return <div className="card text-danger">{err}</div>;
+  if (!d) return <div className="card h-64 animate-pulse" />;
   const inc = d.incident;
   const byStep = new Map(d.trace.map((s) => [s.step, s]));
+  const traceDone = d.trace.some((s) => s.step === "route");
+  const copy = () => navigator.clipboard?.writeText(location.href).then(() => setMsg("Link copied."));
 
   return (
     <>
-      {d.code && <div>
-        <p className="text-sm opacity-60">Tracking code</p>
-        <h1 className="font-mono text-2xl font-semibold">{d.code}</h1>
-        <p className="text-xs opacity-60">Anyone with this link can see the status. Share it with neighbours or quote it to the authority.</p>
-      </div>}
+      {d.code && (
+        <section className="card nn-rise flex flex-col gap-2">
+          <span className="eyebrow">Tracking code</span>
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="font-mono text-3xl font-semibold tracking-wider">{d.code}</h1>
+            <button className="btn-ghost min-h-9 px-3" onClick={copy}>Copy link</button>
+          </div>
+          <p className="text-sm text-muted">Save this code. Anyone with it can follow this report, so share it with neighbours or quote it to the authority.</p>
+        </section>
+      )}
 
-      {inc?.severity_band === "critical" && <div className="rounded-lg border border-red-600 bg-red-600/10 p-3 text-sm">Danger to life? Call <a href="tel:112" className="underline">112</a>.</div>}
+      {inc?.severity_band === "critical" && (
+        <div className="rounded-2xl border border-danger/40 bg-danger/10 p-4 text-sm"><b className="text-danger">Danger to life?</b> Call <a href="tel:112" className="font-semibold text-danger underline">112</a>.</div>
+      )}
 
-      {d.code && <section className="rounded-lg border p-3 text-sm">
-        <h2 className="mb-2 font-medium">AI agent trace {live && <span className="text-xs font-normal text-green-600">● live</span>}</h2>
-        <ol className="flex flex-col gap-1.5">
-          {STEPS.map((k) => {
-            const s = byStep.get(k);
-            const icon = !s ? "…" : s.status === "ok" ? "✓" : s.status === "failed" ? "✗" : s.status === "skipped" ? "–" : "≈";
-            return (
-              <li key={k} className={s ? "" : "opacity-40"}>
-                <span className="inline-block w-5">{icon}</span>{LABEL[k]}
-                {s && <span className="opacity-70"> · {summary(s)}{s.ms != null && ` · ${(s.ms / 1000).toFixed(1)}s`}</span>}
-                {s?.sources?.length ? <span className="ml-5 block truncate text-xs opacity-50">{s.sources.slice(0, 3).map((u) => <a key={u} href={u} target="_blank" rel="noreferrer" className="mr-2 underline">{new URL(u).host}</a>)}</span> : null}
-              </li>
-            );
-          })}
-        </ol>
-      </section>}
+      {d.code && (
+        <section className="card flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <h2 className="font-semibold">AI agent at work</h2>
+            {live && !traceDone ? <span className="chip border-ok/40 text-ok">● live</span> : traceDone ? <span className="chip border-ok/40 text-ok">Done</span> : null}
+          </div>
+          <ol className="relative flex flex-col gap-3 border-l pl-5">
+            {STEPS.map((k) => {
+              const s = byStep.get(k);
+              const dot = !s ? "bg-surface-2 animate-pulse" : s.status === "ok" ? "bg-ok" : s.status === "failed" ? "bg-danger" : s.status === "skipped" ? "bg-muted" : "bg-warn";
+              return (
+                <li key={k} className={`relative ${s ? "nn-rise" : "opacity-50"}`}>
+                  <span className={`absolute top-1.5 -left-[25px] h-2.5 w-2.5 rounded-full ring-4 ring-surface ${dot}`} />
+                  <p className="text-sm font-medium">{LABEL[k]}{s?.ms != null && <span className="font-normal text-muted"> · {(s.ms / 1000).toFixed(1)}s</span>}</p>
+                  {s && <p className="text-sm text-muted">{summary(s)}</p>}
+                  {s?.sources?.length ? <p className="truncate text-xs">{s.sources.slice(0, 3).map((u) => <a key={u} href={u} target="_blank" rel="noreferrer" className="mr-2 text-brand underline">{new URL(u).host}</a>)}</p> : null}
+                </li>
+              );
+            })}
+          </ol>
+          {byStep.get("merge")?.output?.already_reported ? <Tip>You already reported this problem, so no new report was added. Your earlier report keeps counting.</Tip> : null}
+        </section>
+      )}
 
       {inc && (
-        <section className="flex flex-col gap-2 rounded-lg border p-3 text-sm">
-          {inc.cover_photo_path && /* eslint-disable-next-line @next/next/no-img-element */ <img src={photoUrl(String(inc.cover_photo_path))} alt="Reported problem (blurred)" className="max-h-64 rounded-md object-contain" />}
-          <p><b>{inc.category_label}</b> · severity {inc.severity_band} ({inc.severity_score}) · {inc.independent_reporters} reporter(s)</p>
-          <p className="opacity-80">{inc.summary}</p>
-          <p>Status: <b>{String(inc.status).replace(/_/g, " ")}</b></p>
-          <p>Responsible: {inc.authority_name ?? "not found yet"} <span className="opacity-60">({inc.routing_status}{inc.routing_confidence != null && `, confidence ${inc.routing_confidence}`}{inc.authority_verification && `, ${String(inc.authority_verification).replace("_", " ")}`})</span></p>
-          {inc.routing_reason && <p className="text-xs opacity-60">{inc.routing_reason}</p>}
-
-          <div className="mt-2 flex flex-wrap items-center gap-2 border-t pt-2">
-            <input value={ticket} onChange={(e) => setTicket(e.target.value)} placeholder="Complaint / ticket ID" className="w-40 rounded-md border bg-transparent px-2 py-1" />
-            <button onClick={() => setStatus("forwarded")} className="rounded-md border px-2 py-1">I forwarded it</button>
-            <button onClick={() => setStatus("acknowledged")} className="rounded-md border px-2 py-1">Authority acknowledged</button>
-            <button onClick={() => setStatus("resolved_claimed")} className="rounded-md border px-2 py-1">They say it&apos;s fixed</button>
-            <label className="cursor-pointer rounded-md bg-green-700 px-2 py-1 text-white">
-              Verify fix with a live photo
-              <input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" className="hidden" onChange={(e) => e.target.files?.[0] && verify(e.target.files[0])} />
-            </label>
+        <section className="card nn-rise flex flex-col gap-4">
+          {inc.cover_photo_path && /* eslint-disable-next-line @next/next/no-img-element */ <img src={photoUrl(String(inc.cover_photo_path))} alt="Reported problem (faces and plates blurred)" className="max-h-80 w-full rounded-xl bg-surface-2 object-cover" />}
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-xl font-semibold">{inc.category_label}</h2>
+            <SeverityBadge band={inc.severity_band as string} score={inc.severity_score as number} />
+            <StatusLabel status={String(inc.status)} />
+            <span className="chip">{inc.independent_reporters} reporter{inc.independent_reporters === 1 ? "" : "s"}</span>
           </div>
-          {msg && <p className="text-xs">{msg}</p>}
+          <p className="text-sm">{inc.summary}</p>
+          <StatusStepper status={String(inc.status)} />
+          <div className="rounded-xl bg-surface-2 p-3 text-sm">
+            <span className="eyebrow">Responsible authority</span>
+            <p className="font-medium">{inc.authority_name ?? "Not found yet: a moderator will review"}</p>
+            <p className="text-xs text-muted">
+              Routing {inc.routing_status}{inc.routing_confidence != null && ` · confidence ${inc.routing_confidence}`}{inc.authority_verification && ` · ${String(inc.authority_verification).replace("_", " ")}`}
+            </p>
+            {inc.routing_reason && <p className="text-xs text-muted">{inc.routing_reason}</p>}
+          </div>
+        </section>
+      )}
+
+      {inc && inc.status !== "resolved_verified" && (
+        <section className="card flex flex-col gap-3">
+          <h2 className="font-semibold">Help get it fixed</h2>
+          <ol className="flex flex-col gap-3 text-sm">
+            <li className="flex flex-col gap-2">
+              <span><b>1. Forward it</b> <span className="text-muted">to the authority above (portal, app or helpline), then add their complaint number here.</span></span>
+              <div className="flex gap-2">
+                <input value={ticket} onChange={(e) => setTicket(e.target.value)} placeholder="Complaint / ticket ID (optional)" className="input" />
+                <button onClick={() => setStatus("forwarded")} className="btn-ghost shrink-0">I forwarded it</button>
+              </div>
+            </li>
+            <li className="flex flex-wrap items-center gap-2"><span className="flex-1"><b>2. Did they respond?</b></span>
+              <button onClick={() => setStatus("acknowledged")} className="btn-ghost">Acknowledged</button>
+              <button onClick={() => setStatus("resolved_claimed")} className="btn-ghost">They say it&apos;s fixed</button>
+            </li>
+            <li className="flex flex-col gap-2"><span><b>3. Verify the fix</b> <span className="text-muted">Stand at the spot and take a live photo. The AI compares it with the original.</span></span>
+              <label className="btn-primary cursor-pointer">
+                Verify with a live photo
+                <input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" className="hidden" onChange={(e) => e.target.files?.[0] && verify(e.target.files[0])} />
+              </label>
+            </li>
+          </ol>
+          <p className="text-xs text-muted">Only people who reported this incident can update it.</p>
+          {msg && <p className="rounded-xl bg-surface-2 p-3 text-sm">{msg}</p>}
         </section>
       )}
 
       {d.events.length > 0 && (
-        <section className="rounded-lg border p-3 text-sm">
-          <h2 className="mb-1 font-medium">Timeline</h2>
-          <ul className="flex flex-col gap-0.5">
-            {d.events.map((e, i) => <li key={i}><span className="opacity-60">{new Date(e.at).toLocaleString()}</span> · {e.type.replace(/_/g, " ")} <span className="opacity-60">({e.actor_role}){e.payload?.reason ? ` · ${e.payload.reason}` : ""}{e.payload?.authority ? ` · ${e.payload.authority}` : ""}</span></li>)}
+        <section className="card flex flex-col gap-2 text-sm">
+          <h2 className="font-semibold">Public timeline</h2>
+          <ul className="flex flex-col gap-1.5">
+            {d.events.map((e, i) => (
+              <li key={i} className="flex flex-wrap gap-x-2">
+                <span className="w-36 shrink-0 text-xs text-muted tabular-nums">{new Date(e.at).toLocaleString()}</span>
+                <span className="capitalize">{e.type.replace(/_/g, " ")}</span>
+                <span className="text-xs text-muted">({e.actor_role}){e.payload?.reason ? ` · ${e.payload.reason}` : ""}{e.payload?.authority ? ` · ${e.payload.authority}` : ""}</span>
+              </li>
+            ))}
           </ul>
         </section>
       )}
