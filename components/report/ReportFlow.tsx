@@ -33,11 +33,29 @@ export async function api<T>(url: string, body: unknown): Promise<T> {
   return json as T;
 }
 
+// Phone photos are often 5-15 MB: shrink to max 1600 px JPEG before upload (faster on mobile data,
+// under the storage limit, and turns iPhone HEIC into JPEG). Orientation is applied by the browser.
+async function shrinkPhoto(file: Blob): Promise<Blob> {
+  try {
+    const img = await createImageBitmap(file);
+    const scale = Math.min(1, 1600 / Math.max(img.width, img.height));
+    const c = document.createElement("canvas");
+    c.width = Math.round(img.width * scale);
+    c.height = Math.round(img.height * scale);
+    c.getContext("2d")!.drawImage(img, 0, 0, c.width, c.height);
+    img.close();
+    return await new Promise<Blob>((ok, fail) => c.toBlob((b) => (b ? ok(b) : fail(new Error("encode"))), "image/jpeg", 0.85));
+  } catch {
+    return file; // browser can't decode it: upload as is
+  }
+}
+
 export async function upload(kind: "photo" | "audio" | "after_photo", file: Blob): Promise<string> {
+  if (kind !== "audio") file = await shrinkPhoto(file);
   const contentType = file.type || (kind === "audio" ? "audio/webm" : "image/jpeg");
   const { path, token } = await api<{ path: string; token: string }>("/api/upload-url", { kind, contentType });
   const { error } = await createClient().storage.from("raw").uploadToSignedUrl(path, token, file, { contentType });
-  if (error) throw new Error("Upload failed. Please try again.");
+  if (error) throw new Error(`Upload failed (${error.message}). Please try again.`);
   return path;
 }
 
