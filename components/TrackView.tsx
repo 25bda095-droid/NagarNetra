@@ -96,11 +96,11 @@ export default function TrackView({ code, incidentId }: { code?: string; inciden
   async function verify(f: File) {
     setMsg("Checking the after-photo...");
     navigator.geolocation.getCurrentPosition(async (p) => {
-      // same rule as the server: within 30 m (+ up to 50 m GPS error) of the reported spot
+      // same rule as the server: within 75 m (+ up to 75 m GPS error) of the reported spot
       const R = 6371000, rad = (x: number) => (x * Math.PI) / 180;
       const lat = Number(d!.incident!.lat), lon = Number(d!.incident!.lon);
       const dist = 2 * R * Math.asin(Math.sqrt(Math.sin(rad(p.coords.latitude - lat) / 2) ** 2 + Math.cos(rad(lat)) * Math.cos(rad(p.coords.latitude)) * Math.sin(rad(p.coords.longitude - lon) / 2) ** 2));
-      const allowed = 30 + Math.min(p.coords.accuracy, 50);
+      const allowed = 75 + Math.min(p.coords.accuracy, 75);
       if (dist > allowed) return setMsg(`You are about ${Math.round(dist)} m from the reported spot. Go to the problem's location (within ${Math.round(allowed)} m) and take the photo there.`);
       try {
         const path = await upload("after_photo", f);
@@ -201,7 +201,7 @@ export default function TrackView({ code, incidentId }: { code?: string; inciden
               <button onClick={() => setStatus("acknowledged")} className="btn-ghost">Acknowledged</button>
               <button onClick={() => setStatus("resolved_claimed")} className="btn-ghost">They say it&apos;s fixed</button>
             </li>
-            <li className="flex flex-col gap-2"><span><b>3. Verify the fix</b> <span className="text-muted">Stand at the same spot where it was reported (within about 30 m) and take a live photo from a similar angle. The AI compares it with the original.</span></span>
+            <li className="flex flex-col gap-2"><span><b>3. Verify the fix</b> <span className="text-muted">Go to where it was reported (within about 75 m) and take a live photo of the same spot, ideally from a similar angle. The AI compares it with the original.</span></span>
               <label className="btn-primary cursor-pointer">
                 Verify with a live photo
                 <input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" className="hidden" onChange={(e) => e.target.files?.[0] && verify(e.target.files[0])} />

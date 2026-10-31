@@ -10,8 +10,9 @@ import { prepareImageForAi } from "@/lib/media/image";
 import { ownsPath } from "@/lib/media/uploads";
 
 export const maxDuration = 60;
-const MAX_DISTANCE_M = 30;
-const MAX_ACCURACY_SLACK_M = 50; // allowance for GPS error, so at most 80 m
+// phone GPS drifts 10-50 m (more near buildings), on both the report and the after-photo
+const MAX_DISTANCE_M = 75;
+const MAX_ACCURACY_SLACK_M = 75; // plus the after-photo's own GPS error, so at most 150 m
 const Body = z.object({ after_photo_path: z.string().max(200), lat: z.number(), lon: z.number(), accuracy_m: z.number().min(0).max(5000) });
 
 export async function POST(request: Request, { params }: RouteContext<"/api/incidents/[id]/verify">) {
@@ -24,7 +25,7 @@ export async function POST(request: Request, { params }: RouteContext<"/api/inci
     await enforceRateLimits([{ key: `verify:user:${user.userId}`, windowSeconds: 3600, max: 5 }, { key: `verify:ip:${await clientIp()}`, windowSeconds: 3600, max: 10 }]);
 
     const db = createAdminClient();
-    const { data: inc } = await db.from("public_incidents").select("lat, lon, status, cover_photo_path").eq("id", id).single();
+    const { data: inc } = await db.from("public_incidents").select("lat, lon, status, cover_photo_path, summary, category_label").eq("id", id).single();
     if (!inc) throw new HttpError(404, "not_found", "Incident not found.");
     if (inc.status === "resolved_verified") throw new HttpError(409, "already_verified", "Already verified as fixed.");
     if (!inc.cover_photo_path) throw new HttpError(422, "no_before_photo", "This incident has no photo to compare with.");
@@ -46,18 +47,19 @@ export async function POST(request: Request, { params }: RouteContext<"/api/inci
     const before = { data: new Blob([await beforeRes.arrayBuffer()]) };
     let verdict: { same_place: boolean; fixed: boolean; reason: string; model: string | null };
     try {
-      verdict = await compareFix(Buffer.from(await before.data.arrayBuffer()), (await prepareImageForAi(Buffer.from(await after.data.arrayBuffer()))).data);
+      verdict = await compareFix(`${inc.category_label}: ${inc.summary ?? ""}`, Buffer.from(await before.data.arrayBuffer()), (await prepareImageForAi(Buffer.from(await after.data.arrayBuffer()))).data);
     } catch {
       // quota or outage: don't reopen the incident on an AI failure, just ask to retry
       throw new HttpError(503, "ai_busy", "Our AI is busy right now (daily limit reached or service down). Please try verifying again later.");
     }
     if (verdict.model) await db.rpc("record_ai_call", { p_provider: "gemini", p_model: verdict.model });
-    const passed = verdict.same_place && verdict.fixed;
+    // GPS already proves the photo was taken at the spot; the AI mainly judges whether the problem is gone
+    const passed = verdict.fixed && (verdict.same_place || distance_m <= 40);
 
-    await db.from("verifications").insert({ incident_id: id, user_id: user.userId, after_photo_path: b.data.after_photo_path, distance_m, ai_verdict: verdict, passed });
+    await db.from("verifications").insert({ incident_id: id, user_id: user.userId, after_photo_path: b.data.after_photo_path, distance_m, after_point: `SRID=4326;POINT(${b.data.lon} ${b.data.lat})`, accuracy_m: b.data.accuracy_m, ai_verdict: verdict, passed });
     const status = passed ? "resolved_verified" : "reopened";
     await db.from("incidents").update({ status, ...(passed ? { resolved_at: new Date().toISOString() } : {}) }).eq("id", id);
-    await db.from("events").insert({ incident_id: id, type: status, payload: { reason: verdict.reason, distance_m: Math.round(distance_m) }, actor_role: "ai" });
+    await db.from("events").insert({ incident_id: id, type: status, payload: { reason: verdict.reason, distance_m: Math.round(distance_m), fixed: verdict.fixed, same_place: verdict.same_place }, actor_role: "ai" });
     return Response.json({ passed, status, reason: verdict.reason, distance_m: Math.round(distance_m) });
   } catch (err) {
     return errorResponse(err);
