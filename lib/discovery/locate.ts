@@ -3,7 +3,7 @@
 // Results are cached per ~100 m cell so repeated reports nearby are instant.
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { coreName } from "./lgd-names.ts";
-import { fetchNominatim, fetchOverpass, parseOverpass, roadFromNominatim, type Office, type Place, type Road } from "./osm.ts";
+import { fetchNominatim, fetchOverpass, nominatimOffices, parseOverpass, roadFromNominatim, type Office, type Place, type Road } from "./osm.ts";
 
 const CACHE_DAYS = 30;
 const MIN_SCORE = { state: 0.5, district: 0.45, local_body: 0.45 } as const;
@@ -64,7 +64,13 @@ export async function locate(db: SupabaseClient, lat: number, lon: number, opts:
   const warnings: string[] = [];
   const [overpass, nominatim] = await Promise.allSettled([fetchOverpass(lat, lon), fetchNominatim(lat, lon)]);
   const osm = overpass.status === "fulfilled" ? parseOverpass(overpass.value.elements, { lat, lon }) : null;
-  if (!osm) warnings.push(`Nearby places and offices unavailable (Overpass busy): ${(overpass as PromiseRejectedResult).reason?.message ?? "error"}`);
+  let backupOffices: Office[] = [];
+  if (!osm) {
+    // Overpass down: government offices still come from Nominatim search (after the reverse lookup, 1 req/s)
+    await new Promise((r) => setTimeout(r, 1000));
+    backupOffices = await nominatimOffices(lat, lon).catch(() => []);
+    warnings.push(`Nearby schools/hospitals unavailable (Overpass busy)${backupOffices.length ? "; offices found via Nominatim search" : ""}`);
+  }
   const nom = nominatim.status === "fulfilled" ? nominatim.value : null;
   if (!nom) warnings.push("Address lookup (Nominatim) unavailable");
   const addr = nom?.address ?? {};
@@ -134,7 +140,7 @@ export async function locate(db: SupabaseClient, lat: number, lon: number, opts:
       bus_stops: nearbyItems.filter((p) => p.kind === "bus_stop").length,
       items: nearbyItems.slice(0, 15),
     },
-    offices: osm?.offices ?? [],
+    offices: osm?.offices ?? backupOffices,
     wikidata,
     warnings,
     fetched_at: new Date().toISOString(),

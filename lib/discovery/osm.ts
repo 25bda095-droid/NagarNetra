@@ -185,3 +185,25 @@ export function roadFromNominatim(n: NominatimResult | null): Road | null {
     source: n.osm_type && n.osm_id ? `https://www.openstreetmap.org/${n.osm_type}/${n.osm_id}` : "nominatim",
   };
 }
+
+// Backup when every Overpass server is down: government offices from Nominatim search ("government"
+// within ~5 km). One request, so it stays inside Nominatim's 1 request/second policy.
+export async function nominatimOffices(lat: number, lon: number): Promise<Office[]> {
+  const base = process.env.NOMINATIM_URL ?? "https://nominatim.openstreetmap.org";
+  const d = 0.045; // ~5 km
+  const url = `${base}/search?format=jsonv2&q=government&bounded=1&limit=20&extratags=1&viewbox=${lon - d},${lat + d},${lon + d},${lat - d}`;
+  const res = await fetchWithTimeout(url, {}, 6000);
+  if (!res.ok) throw new Error(`nominatim search HTTP ${res.status}`);
+  const rows = (await res.json()) as { name: string; category: string; type: string; lat: string; lon: string; osm_type: string; osm_id: number; extratags?: Record<string, string> }[];
+  return rows
+    .filter((r) => r.name && ((r.category === "office" && r.type === "government") || (r.category === "amenity" && ["townhall", "public_building", "courthouse"].includes(r.type))))
+    .map((r) => ({
+      name: r.name,
+      phone: r.extratags?.phone ?? r.extratags?.["contact:phone"] ?? null,
+      website: r.extratags?.website ?? r.extratags?.["contact:website"] ?? null,
+      distance_m: Math.round(distanceM({ lat, lon }, { lat: Number(r.lat), lon: Number(r.lon) })),
+      source: `https://www.openstreetmap.org/${r.osm_type}/${r.osm_id}`,
+    }))
+    .sort((a, b) => a.distance_m - b.distance_m)
+    .slice(0, 10);
+}
