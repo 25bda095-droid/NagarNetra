@@ -1,7 +1,9 @@
 "use client";
 
 // Top bar on desktop, bottom tab bar on phones (thumb reach).
+import { useEffect, useState } from "react";
 import Link from "next/link";
+import { createClient } from "@/lib/supabase/client";
 import { usePathname } from "next/navigation";
 import Logo from "@/components/Logo";
 
@@ -16,6 +18,14 @@ const LINKS = [
 export default function Nav() {
   const path = usePathname();
   const active = (h: string) => (h === "/" ? path === "/" : path.startsWith(h));
+  // signed-in state for the account button (desktop) and the sign-out link
+  const [signedIn, setSignedIn] = useState<boolean | null>(null);
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getSession().then(({ data }) => setSignedIn(!!data.session));
+    const { data } = supabase.auth.onAuthStateChange((_e, session) => setSignedIn(!!session));
+    return () => data.subscription.unsubscribe();
+  }, []);
   return (
     <>
       <header className="sticky top-0 z-30 border-b bg-surface/85 backdrop-blur">
@@ -31,6 +41,12 @@ export default function Nav() {
             ))}
           </nav>
           <Link href="/report" className="btn-primary ml-auto min-h-9 px-3 sm:ml-0">Report issue</Link>
+          {signedIn === true && (
+            <form action="/auth/signout" method="post" className="hidden sm:block">
+              <button className="btn-ghost min-h-9 px-3">Sign out</button>
+            </form>
+          )}
+          {signedIn === false && <Link href="/me" className="btn-ghost hidden min-h-9 px-3 sm:inline-flex">Sign in</Link>}
         </div>
       </header>
       <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur sm:hidden">
