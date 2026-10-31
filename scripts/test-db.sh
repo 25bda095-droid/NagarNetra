@@ -31,3 +31,4 @@ done
 
 echo "Running tests"
 run_sql supabase/tests/rls_test.sql
+run_sql supabase/tests/pipeline_test.sql
